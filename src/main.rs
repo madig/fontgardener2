@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
+use glyphsinfo_rs::{self, GlyphData};
 use structs::Fontgarden;
 
 mod errors;
@@ -25,6 +26,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or(String::from("Regular"));
 
     let mut fontgarden = Fontgarden::new();
+    let glyph_info = glyphsinfo_rs::GlyphData::default();
 
     for layer in ufo_source.iter_layers() {
         let layer_name = if std::ptr::eq(layer, ufo_source.layers.default_layer()) {
@@ -42,6 +44,7 @@ fn main() -> anyhow::Result<()> {
                 .or_default();
 
             fontgarden_glyph.codepoints = glyph.codepoints.clone();
+            fontgarden_glyph.set = categorize_glyph(glyph, &glyph_info);
             let fontgarden_layer: structs::Layer = glyph.into();
             fontgarden_glyph
                 .layers
@@ -81,4 +84,21 @@ fn main() -> anyhow::Result<()> {
     fontgarden.save(&file_name)?;
 
     Ok(())
+}
+
+fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<String> {
+    if let Some(unicode) = glyph.codepoints.iter().next() {
+        return glyph_info
+            .record_for_unicode(unicode)
+            .and_then(|record| record.script.as_ref().map(|s| format!("{s:?}")));
+    }
+    if let Some(record) = glyph_info.record_for_name(glyph.name()) {
+        return record.script.as_ref().map(|s| format!("{s:?}"));
+    }
+    if let Some((base_name, _)) = glyph.name().split_once('.') {
+        return glyph_info
+            .record_for_name(base_name)
+            .and_then(|record| record.script.as_ref().map(|s| format!("{s:?}")));
+    }
+    None
 }
