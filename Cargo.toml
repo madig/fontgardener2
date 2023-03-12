@@ -1,0 +1,25 @@
+[package]
+name = "fontgardener2"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4.1", features = ["derive"] }
+csv = "1.1"
+norad = { git = "https://github.com/linebender/norad.git", rev = "7f67897ad9f1dc9836603e82d3b9b4ca97d93bba", features = ["rayon"] }
+plist = { version = "1.4", features = ["serde"] }
+rayon = "1.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+
+[dev-dependencies]
+pretty_assertions = "1.0"
+tempfile = "3.3.0"
+
+[profile.release]
+debug = 1
