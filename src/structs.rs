@@ -110,8 +110,11 @@ pub struct Layer {
     pub anchors: Vec<Anchor>,
     pub components: Vec<Component>,
     pub contours: Vec<Contour>,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub vertical_origin: Option<f64>,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub x_advance: Option<f64>,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub y_advance: Option<f64>,
 }
 
@@ -134,8 +137,14 @@ pub struct Contour {
 pub struct ContourPoint {
     pub x: f64,
     pub y: f64,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub typ: PointType,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub smooth: bool,
+}
+
+fn is_default<T: Default + PartialEq>(t: &T) -> bool {
+    t == &T::default()
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,17 +167,60 @@ pub struct Anchor {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Component {
     pub name: String,
+    #[serde(default, skip_serializing_if = "is_default")]
     pub transformation: AffineTransformation,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct AffineTransformation {
+    #[serde(default = "one", skip_serializing_if = "is_one")]
     pub x_scale: f64,
+    #[serde(default = "zero", skip_serializing_if = "is_zero")]
     pub xy_scale: f64,
+    #[serde(default = "zero", skip_serializing_if = "is_zero")]
     pub yx_scale: f64,
+    #[serde(default = "one", skip_serializing_if = "is_one")]
     pub y_scale: f64,
+    #[serde(default = "zero", skip_serializing_if = "is_zero")]
     pub x_offset: f64,
+    #[serde(default = "zero", skip_serializing_if = "is_zero")]
     pub y_offset: f64,
+}
+
+fn zero() -> f64 {
+    0.
+}
+
+fn one() -> f64 {
+    1.
+}
+
+fn is_zero(f: &f64) -> bool {
+    *f == 0.
+}
+
+fn is_one(f: &f64) -> bool {
+    *f == 1.
+}
+
+impl AffineTransformation {
+    ///  [1 0 0 1 0 0]; the identity transformation.
+    fn identity() -> Self {
+        Self {
+            x_scale: 1.0,
+            xy_scale: 0.,
+            yx_scale: 0.,
+            y_scale: 1.0,
+            x_offset: 0.,
+            y_offset: 0.,
+        }
+    }
+}
+
+impl Default for AffineTransformation {
+    fn default() -> Self {
+        Self::identity()
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Serialize)]
@@ -210,13 +262,21 @@ impl<'de> Deserialize<'de> for OpenTypeCategory {
 
 impl From<&norad::Glyph> for Layer {
     fn from(glyph: &norad::Glyph) -> Self {
+        // A glyph's "height" (y_advance) makes little sense unless there is also a
+        // vertical origin in its lib.
+        let vertical_origin = glyph
+            .lib
+            .get("public.verticalOrigin")
+            .and_then(|o| o.as_real());
+        let y_advance = vertical_origin.map(|_| glyph.height.into());
+
         Self {
             anchors: glyph.anchors.iter().map(|x| x.into()).collect(),
             components: glyph.components.iter().map(|x| x.into()).collect(),
             contours: glyph.contours.iter().map(|x| x.into()).collect(),
-            vertical_origin: None,
+            vertical_origin,
             x_advance: glyph.width.into(),
-            y_advance: glyph.height.into(),
+            y_advance,
         }
     }
 }
