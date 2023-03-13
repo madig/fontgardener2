@@ -268,7 +268,7 @@ impl From<&norad::Glyph> for Layer {
             .lib
             .get("public.verticalOrigin")
             .and_then(|o| o.as_real());
-        let y_advance = vertical_origin.map(|_| glyph.height.into());
+        let y_advance = vertical_origin.map(|_| glyph.height);
 
         Self {
             anchors: glyph.anchors.iter().map(|x| x.into()).collect(),
