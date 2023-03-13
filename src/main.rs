@@ -138,3 +138,38 @@ fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<Stri
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_empty() {
+        let fontgarden = Fontgarden::new();
+
+        let fontgarden_path = tempfile::tempdir().unwrap();
+        fontgarden.save(fontgarden_path.path()).unwrap();
+        let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
+
+    // TODO: Add test where we add a few empty glyphs (just the names) and roundtrip
+
+    #[test]
+    fn roundtrip() {
+        let fontgarden = import_ufos_into_fontgarden(&[
+            "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
+        ])
+        .unwrap();
+
+        let fontgarden_path = tempfile::tempdir().unwrap();
+        fontgarden.save(fontgarden_path.path()).unwrap();
+        let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
+}

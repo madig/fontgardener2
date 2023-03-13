@@ -1,10 +1,15 @@
-use std::{collections::HashMap, path::Path, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+    str::FromStr,
+};
 
 use norad::Codepoints;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::errors::SaveError;
+use crate::errors::{LoadError, SaveError};
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Fontgarden {
@@ -14,6 +19,32 @@ pub struct Fontgarden {
 impl Fontgarden {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn load(path: &Path) -> Result<Self, LoadError> {
+        if !path.is_dir() {
+            return Err(LoadError::NotAFontgarden);
+        }
+
+        let mut fontgarden = Self::new();
+        let mut seen_glyph_names: HashSet<String> = HashSet::new();
+
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            let metadata = entry.metadata()?;
+            if metadata.is_file() {
+                // TODO: Figure out when this call is None and if we should deal
+                // with it.
+                if let Some(file_name) = path.file_name() {
+                    if let Some(set_name) = file_name.to_string_lossy().strip_prefix("set.") {
+                        todo!()
+                    }
+                }
+            }
+        }
+
+        Ok(fontgarden)
     }
 
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {
