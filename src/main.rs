@@ -22,7 +22,15 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let sources = load_sources(&cli.sources)?;
+    let fontgarden = import_ufos_into_fontgarden(&cli.sources)?;
+    let file_name = Path::new("/tmp/font.fontgarden");
+    fontgarden.save(file_name)?;
+
+    Ok(())
+}
+
+fn import_ufos_into_fontgarden(sources: &[PathBuf]) -> Result<Fontgarden, anyhow::Error> {
+    let sources = load_sources(sources)?;
     let default_source = match sources.get("Regular") {
         Some(font) => font,
         None => sources.values().next().unwrap(),
@@ -87,10 +95,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let file_name = Path::new("/tmp/font.fontgarden");
-    fontgarden.save(file_name)?;
-
-    Ok(())
+    Ok(fontgarden)
 }
 
 fn load_sources(sources: &[PathBuf]) -> Result<HashMap<String, norad::Font>, SourceLoadError> {
