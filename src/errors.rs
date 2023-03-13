@@ -1,4 +1,14 @@
+use std::path::PathBuf;
+
 use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum SourceLoadError {
+    #[error("failed to load UFO source {0}")]
+    Ufo(PathBuf, #[source] norad::error::FontLoadError),
+    #[error("more than one source uses the same style name {0}, last seen in {1}")]
+    DuplicateLayerName(String, PathBuf),
+}
 
 #[derive(Error, Debug)]
 pub enum SaveError {
