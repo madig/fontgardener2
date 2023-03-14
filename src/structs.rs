@@ -21,6 +21,9 @@ impl Fontgarden {
         Self::default()
     }
 
+    const SET_CSV_HEADER: [&str; 4] =
+        ["name", "postscript_name", "codepoints", "opentype_category"];
+
     pub fn load(path: &Path) -> Result<Self, LoadError> {
         if !path.is_dir() {
             return Err(LoadError::NotAFontgarden);
@@ -68,7 +71,7 @@ impl Fontgarden {
                 .map_err(|e| SaveError::SaveSetData(set_name.into(), e))?;
 
             writer
-                .write_record(["name", "postscript_name", "codepoints", "opentype_category"])
+                .write_record(Self::SET_CSV_HEADER)
                 .map_err(|e| SaveError::SaveSetData(set_name.into(), e))?;
             for name in glyph_names {
                 let glyph = &self.glyphs[name];
