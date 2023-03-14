@@ -59,10 +59,7 @@ impl Fontgarden {
         let mut glyphs_by_set: HashMap<&str, Vec<&str>> = HashMap::new();
         for name in sorted_glyph_names.iter() {
             let set_name = self.glyphs[*name].set.as_deref().unwrap_or(common_name);
-            glyphs_by_set
-                .entry(set_name)
-                .and_modify(|v| v.push(name))
-                .or_insert(vec![]);
+            glyphs_by_set.entry(set_name).or_insert(vec![]).push(name);
         }
 
         for (set_name, glyph_names) in glyphs_by_set {
