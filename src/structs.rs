@@ -4,7 +4,10 @@ use norad::Codepoints;
 use rayon::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::errors::{LoadError, SaveError};
+use crate::{
+    errors::{LoadError, SaveError},
+    filenames::{filename_to_name, name_to_filename},
+};
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Fontgarden {
@@ -16,6 +19,7 @@ impl Fontgarden {
         Self::default()
     }
 
+    const COMMON_SET_NAME: &str = "common";
     const SET_CSV_HEADER: [&str; 4] =
         ["name", "postscript_name", "codepoints", "opentype_category"];
 
@@ -35,7 +39,9 @@ impl Fontgarden {
             let path = entry.path();
             match (path.file_stem(), path.extension().and_then(OsStr::to_str)) {
                 (Some(stem), Some("csv")) => {
-                    if let Some(set_name) = stem.to_string_lossy().strip_prefix("set.") {
+                    if let Some(set_filename) = stem.to_string_lossy().strip_prefix("set.") {
+                        let set_name = filename_to_name(set_filename);
+
                         let mut reader = csv::Reader::from_path(&path)
                             .map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
                         type Record = (String, Option<String>, String, OpenTypeCategory);
@@ -45,14 +51,14 @@ impl Fontgarden {
 
                             if fontgarden.glyphs.contains_key(&glyph_name) {
                                 return Err(LoadError::DuplicateGlyphs(
-                                    set_name.into(),
+                                    set_name,
                                     glyph_name,
                                 ));
                             }
 
                             let codepoints = parse_codepoints(&codepoints_string).map_err(|e| {
                                 LoadError::InvalidCodepoints(
-                                    set_name.into(),
+                                    set_name.clone(),
                                     glyph_name.clone(),
                                     codepoints_string,
                                     e,
@@ -66,9 +72,9 @@ impl Fontgarden {
                                     layers: HashMap::new(),
                                     opentype_category,
                                     postscript_name,
-                                    set: match set_name {
-                                        "Common" => None,
-                                        _ => Some(set_name.into()),
+                                    set: match set_name.as_ref() {
+                                        Self::COMMON_SET_NAME => None,
+                                        _ => Some(set_name.clone()),
                                     },
                                 },
                             );
@@ -88,17 +94,19 @@ impl Fontgarden {
         }
         std::fs::create_dir(path).map_err(SaveError::CreateDir)?;
 
-        let common_name = "Common";
         let mut sorted_glyph_names: Vec<&str> = self.glyphs.keys().map(|n| n.as_str()).collect();
         sorted_glyph_names.sort();
         let mut glyphs_by_set: HashMap<&str, Vec<&str>> = HashMap::new();
         for name in sorted_glyph_names.iter() {
-            let set_name = self.glyphs[*name].set.as_deref().unwrap_or(common_name);
+            let set_name = self.glyphs[*name]
+                .set
+                .as_deref()
+                .unwrap_or(Self::COMMON_SET_NAME);
             glyphs_by_set.entry(set_name).or_insert(vec![]).push(name);
         }
 
         for (set_name, glyph_names) in glyphs_by_set {
-            let set_info_path = path.join(format!("set.{set_name}.csv"));
+            let set_info_path = path.join(name_to_filename(&format!("set.{set_name}.csv")));
             let mut writer = csv::Writer::from_path(&set_info_path)
                 .map_err(|e| SaveError::SaveSetData(set_name.into(), e))?;
 
@@ -132,13 +140,15 @@ impl Fontgarden {
             .par_iter()
             .filter(|(_, glyph)| !glyph.is_empty())
             .map(|(name, glyph)| {
-                let this_glyph_dir = glyphs_dir.join(name);
+                let this_glyph_dir = glyphs_dir.join(name_to_filename(name));
                 std::fs::create_dir_all(&this_glyph_dir)
                     .map_err(|e| SaveError::CreateGlyphDir(name.clone(), e))?;
                 for (layer_name, layer) in
                     glyph.layers.iter().filter(|(_, layer)| !layer.is_empty())
                 {
-                    let layer_path = this_glyph_dir.join(layer_name).with_extension("json");
+                    let layer_path = this_glyph_dir
+                        .join(name_to_filename(layer_name))
+                        .with_extension("json");
                     let layer_file = std::fs::File::create(&layer_path)
                         .map_err(|e| SaveError::SaveLayer(name.clone(), layer_name.clone(), e))?;
                     serde_json::to_writer_pretty(layer_file, layer).map_err(|e| {

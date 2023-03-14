@@ -9,6 +9,7 @@ use glyphsinfo_rs::{self, GlyphData};
 use structs::Fontgarden;
 
 mod errors;
+mod filenames;
 mod structs;
 
 #[derive(Parser)]
