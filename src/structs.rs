@@ -1,9 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    path::Path,
-    str::FromStr,
-};
+use std::{collections::HashMap, ffi::OsStr, fs, path::Path, str::FromStr};
 
 use norad::Codepoints;
 use rayon::prelude::*;
@@ -30,20 +25,57 @@ impl Fontgarden {
         }
 
         let mut fontgarden = Self::new();
-        let mut seen_glyph_names: HashSet<String> = HashSet::new();
 
         for entry in fs::read_dir(path)? {
             let entry = entry?;
-            let path = entry.path();
             let metadata = entry.metadata()?;
-            if metadata.is_file() {
-                // TODO: Figure out when this call is None and if we should deal
-                // with it.
-                if let Some(file_name) = path.file_name() {
-                    if let Some(set_name) = file_name.to_string_lossy().strip_prefix("set.") {
-                        todo!()
+            if !metadata.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            match (path.file_stem(), path.extension().and_then(OsStr::to_str)) {
+                (Some(stem), Some("csv")) => {
+                    if let Some(set_name) = stem.to_string_lossy().strip_prefix("set.") {
+                        let mut reader = csv::Reader::from_path(&path)
+                            .map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
+                        type Record = (String, Option<String>, String, OpenTypeCategory);
+                        for result in reader.deserialize() {
+                            let (glyph_name, postscript_name, codepoints_string, opentype_category): Record =
+                                result.map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
+
+                            if fontgarden.glyphs.contains_key(&glyph_name) {
+                                return Err(LoadError::DuplicateGlyphs(
+                                    set_name.into(),
+                                    glyph_name,
+                                ));
+                            }
+
+                            let codepoints = parse_codepoints(&codepoints_string).map_err(|e| {
+                                LoadError::InvalidCodepoints(
+                                    set_name.into(),
+                                    glyph_name.clone(),
+                                    codepoints_string,
+                                    e,
+                                )
+                            })?;
+
+                            fontgarden.glyphs.insert(
+                                glyph_name,
+                                Glyph {
+                                    codepoints,
+                                    layers: HashMap::new(),
+                                    opentype_category,
+                                    postscript_name,
+                                    set: match set_name {
+                                        "Common" => None,
+                                        _ => Some(set_name.into()),
+                                    },
+                                },
+                            );
+                        }
                     }
                 }
+                _ => continue,
             }
         }
 
@@ -119,6 +151,16 @@ impl Fontgarden {
 
         Ok(())
     }
+}
+
+fn parse_codepoints(v: &str) -> Result<Codepoints, Box<dyn std::error::Error + Send + Sync>> {
+    let mut codepoints = Codepoints::new([]);
+    for codepoint in v.split_whitespace() {
+        let codepoint = u32::from_str_radix(codepoint, 16)?;
+        let codepoint = char::try_from(codepoint)?;
+        codepoints.insert(codepoint);
+    }
+    Ok(codepoints)
 }
 
 #[derive(Debug, Default, PartialEq)]

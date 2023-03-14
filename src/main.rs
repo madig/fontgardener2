@@ -141,6 +141,10 @@ fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<Stri
 
 #[cfg(test)]
 mod tests {
+    use norad::Codepoints;
+
+    use structs::{Glyph, OpenTypeCategory};
+
     use super::*;
 
     #[test]
@@ -154,7 +158,36 @@ mod tests {
         assert_eq!(fontgarden, roundtripped_fontgarden);
     }
 
-    // TODO: Add test where we add a few empty glyphs (just the names) and roundtrip
+    #[test]
+    fn roundtrip_no_layers() {
+        let mut fontgarden = Fontgarden::new();
+        fontgarden.glyphs.insert(
+            "a".into(),
+            Glyph {
+                codepoints: Codepoints::new(['a']),
+                layers: HashMap::new(),
+                opentype_category: OpenTypeCategory::Unassigned,
+                postscript_name: Some("a".into()),
+                set: None,
+            },
+        );
+        fontgarden.glyphs.insert(
+            "b".into(),
+            Glyph {
+                codepoints: Codepoints::new([]),
+                layers: HashMap::new(),
+                opentype_category: OpenTypeCategory::Base,
+                postscript_name: None,
+                set: Some("Test".into()),
+            },
+        );
+
+        let fontgarden_path = tempfile::tempdir().unwrap();
+        fontgarden.save(fontgarden_path.path()).unwrap();
+        let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
 
     #[test]
     fn roundtrip() {
