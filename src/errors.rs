@@ -12,8 +12,8 @@ pub enum SourceLoadError {
 
 #[derive(Error, Debug)]
 pub enum LoadError {
-    #[error("failed to load data from disk")]
-    Io(#[from] std::io::Error),
+    #[error("failed to load {0} from disk")]
+    Io(PathBuf, #[source] std::io::Error),
     #[error("a fontgarden must be a directory")]
     NotAFontgarden,
     #[error("cannot load set '{0}' as a glyph it contains is in a different set already: {1}")]
