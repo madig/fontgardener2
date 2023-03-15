@@ -30,7 +30,7 @@ impl Fontgarden {
 
         let mut glyphs: HashMap<String, Glyph> = HashMap::new();
 
-        for entry in fs::read_dir(&path).map_err(|e| LoadError::Io(path.into(), e))? {
+        for entry in fs::read_dir(path).map_err(|e| LoadError::Io(path.into(), e))? {
             let entry = entry.map_err(|e| LoadError::Io(path.into(), e))?;
             let metadata = entry
                 .metadata()
@@ -85,26 +85,22 @@ impl Fontgarden {
         }
 
         glyphs
-            .par_iter()
-            .map(|(glyph_name, _)| {
+            .par_iter_mut()
+            .map(|(glyph_name, glyph)| {
                 (
-                    glyph_name.clone(),
-                    path.join("glyphs").join(name_to_filename(&glyph_name)),
+                    glyph,
+                    path.join("glyphs").join(name_to_filename(glyph_name)),
                 )
             })
             .filter(|(_, glyph_dir)| glyph_dir.exists())
-            .map(|(glyph_name, glyph_dir)| {
+            .try_for_each(|(glyph, glyph_dir)| -> Result<(), LoadError> {
                 let mut layers = HashMap::new();
                 for entry in fs::read_dir(&glyph_dir).map_err(|e| LoadError::Io(glyph_dir, e))? {
                     // ...
                 }
-                Ok((glyph_name, layers))
-            })
-            .collect::<Result<Vec<(String, HashMap<String, Layer>)>, LoadError>>()?
-            .into_iter()
-            .for_each(|(glyph_name, layers)| {
-                glyphs.get_mut(&glyph_name).unwrap().layers = layers;
-            });
+                glyph.layers = layers;
+                Ok(())
+            })?;
 
         Ok(Fontgarden { glyphs })
     }
