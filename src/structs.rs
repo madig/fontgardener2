@@ -1,4 +1,10 @@
-use std::{collections::HashMap, ffi::OsStr, fs, path::Path, str::FromStr};
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    fs::{self, File},
+    path::Path,
+    str::FromStr,
+};
 
 use norad::Codepoints;
 use rayon::prelude::*;
@@ -88,17 +94,37 @@ impl Fontgarden {
             .par_iter_mut()
             .map(|(glyph_name, glyph)| {
                 (
+                    glyph_name.as_str(),
                     glyph,
                     path.join("glyphs").join(name_to_filename(glyph_name)),
                 )
             })
-            .filter(|(_, glyph_dir)| glyph_dir.exists())
-            .try_for_each(|(glyph, glyph_dir)| -> Result<(), LoadError> {
-                let mut layers = HashMap::new();
-                for entry in fs::read_dir(&glyph_dir).map_err(|e| LoadError::Io(glyph_dir, e))? {
-                    // ...
+            .filter(|(_, _, glyph_dir)| glyph_dir.exists())
+            .try_for_each(|(glyph_name, glyph, glyph_dir)| -> Result<(), LoadError> {
+                for entry in fs::read_dir(&glyph_dir).map_err(|e| LoadError::Io(glyph_dir.clone(), e))? {
+                    let entry = entry.map_err(|e| LoadError::Io(glyph_dir.clone(), e))?; // Should be entry path?
+                    let layer_path = entry.path();
+                    let metadata = entry
+                        .metadata()
+                        .map_err(|e| LoadError::Io(layer_path.clone(), e))?;
+                    if !metadata.is_file() {
+                        continue;
+                    }
+                    // TODO: Return an error if filename conversion to UTF-8 fails?
+                    let Some(layer_filename_stem) = layer_path.file_stem().map(OsStr::to_str).flatten() else {
+                        continue;
+                    };
+                    let Some("json") = layer_path.extension().map(OsStr::to_str).flatten() else {
+                        continue;
+                    };
+
+                    let layer_file =
+                    File::open(&layer_path).map_err(|e| LoadError::Io(layer_path.clone(), e))?;
+                    let layer: Layer = serde_json::from_reader(layer_file).map_err(|e| {
+                        LoadError::LoadLayerJson(layer_path.clone(), glyph_name.into(), e)
+                    })?;
+                    glyph.layers.insert(filename_to_name(layer_filename_stem), layer);
                 }
-                glyph.layers = layers;
                 Ok(())
             })?;
 

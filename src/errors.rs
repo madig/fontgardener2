@@ -27,6 +27,8 @@ pub enum LoadError {
     ),
     #[error("failed to save set data '{0}'")]
     LoadSetData(PathBuf, #[source] csv::Error),
+    #[error("failed to load JSON data from {0} for glyph {1}")]
+    LoadLayerJson(PathBuf, String, #[source] serde_json::Error),
 }
 
 #[derive(Error, Debug)]
