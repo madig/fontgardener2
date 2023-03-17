@@ -189,9 +189,11 @@ impl Fontgarden {
                 for (layer_name, layer) in
                     glyph.layers.iter().filter(|(_, layer)| !layer.is_empty())
                 {
-                    let layer_path = this_glyph_dir
-                        .join(name_to_filename(layer_name))
-                        .with_extension("json");
+                    // Can't use `with_extension()` here because with layer
+                    // names like "Bla.background" it would replace the
+                    // "background"!
+                    let layer_filename = format!("{}.json", name_to_filename(layer_name));
+                    let layer_path = this_glyph_dir.join(layer_filename);
                     let layer_file = std::fs::File::create(&layer_path)
                         .map_err(|e| SaveError::SaveLayer(name.clone(), layer_name.clone(), e))?;
                     serde_json::to_writer_pretty(&layer_file, layer).map_err(|e| {
