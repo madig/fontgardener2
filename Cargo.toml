@@ -10,7 +10,7 @@ license = "Apache-2.0"
 anyhow = "1"
 clap = { version = "4.1", features = ["derive"] }
 csv = "1.1"
-norad = { git = "https://github.com/linebender/norad.git", rev = "7f67897ad9f1dc9836603e82d3b9b4ca97d93bba", features = ["rayon"] }
+norad = { version = "0.10", features = ["rayon"] }
 plist = { version = "1.4", features = ["serde"] }
 rayon = "1.7"
 serde = { version = "1.0", features = ["derive"] }
