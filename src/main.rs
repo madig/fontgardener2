@@ -9,6 +9,7 @@ use glyphsinfo_rs::{self, GlyphData};
 use structs::Fontgarden;
 
 mod errors;
+mod filenames;
 mod structs;
 
 #[derive(Parser)]
@@ -137,4 +138,72 @@ fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<Stri
             .and_then(|record| record.script.as_ref().map(|s| format!("{s:?}")));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use norad::Codepoints;
+
+    use structs::{Glyph, OpenTypeCategory};
+
+    use super::*;
+
+    #[test]
+    fn roundtrip_empty() {
+        let fontgarden = Fontgarden::new();
+
+        let fontgarden_path = tempfile::tempdir().unwrap();
+        fontgarden.save(fontgarden_path.path()).unwrap();
+        let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
+
+    #[test]
+    fn roundtrip_no_layers() {
+        let mut fontgarden = Fontgarden::new();
+        fontgarden.glyphs.insert(
+            "a".into(),
+            Glyph {
+                codepoints: Codepoints::new(['a']),
+                layers: HashMap::new(),
+                opentype_category: OpenTypeCategory::Unassigned,
+                postscript_name: Some("a".into()),
+                set: None,
+            },
+        );
+        fontgarden.glyphs.insert(
+            "b".into(),
+            Glyph {
+                codepoints: Codepoints::new([]),
+                layers: HashMap::new(),
+                opentype_category: OpenTypeCategory::Base,
+                postscript_name: None,
+                set: Some("Test".into()),
+            },
+        );
+
+        let fontgarden_path = tempfile::tempdir().unwrap();
+        fontgarden.save(fontgarden_path.path()).unwrap();
+        let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
+
+    #[test]
+    fn roundtrip() {
+        let fontgarden = import_ufos_into_fontgarden(&[
+            "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
+        ])
+        .unwrap();
+
+        let fontgarden_path = tempfile::tempdir().unwrap();
+        fontgarden.save(fontgarden_path.path()).unwrap();
+        let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
 }
