@@ -182,7 +182,7 @@ impl Fontgarden {
         self.glyphs
             .par_iter()
             .filter(|(_, glyph)| !glyph.is_empty())
-            .map(|(name, glyph)| {
+            .try_for_each(|(name, glyph)| {
                 let this_glyph_dir = glyphs_dir.join(name_to_filename(name));
                 std::fs::create_dir_all(&this_glyph_dir)
                     .map_err(|e| SaveError::CreateGlyphDir(name.clone(), e))?;
@@ -201,8 +201,7 @@ impl Fontgarden {
                     })?;
                 }
                 Ok(())
-            })
-            .collect::<Result<_, _>>()?;
+            })?;
 
         Ok(())
     }
