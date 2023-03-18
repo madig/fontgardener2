@@ -18,18 +18,20 @@ pub enum LoadError {
     NotAFontgarden,
     #[error("cannot load set '{0}' as a glyph it contains is in a different set already: {1}")]
     DuplicateGlyphs(String, String),
-    #[error("cannot load set '{0}' as the glyph {1} has (an) invalid codepoint(s): {2}")]
-    InvalidCodepoints(
-        String,
-        String,
-        String,
-        #[source] Box<dyn std::error::Error + Send + Sync>,
-    ),
+    #[error("malformed codepoint(s) {0}")]
+    InvalidCodepoints(String, #[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("failed to save set data '{0}'")]
     LoadSetData(PathBuf, #[source] csv::Error),
     #[error("failed to load JSON data from {0} for glyph {1}")]
     LoadLayerJson(PathBuf, String, #[source] serde_json::Error),
 }
+
+#[derive(Error, Debug)]
+#[error("malformed codepoint(s) {0}")]
+pub(crate) struct InvalidCodepoints(
+    pub(crate) String,
+    #[source] pub(crate) Box<dyn std::error::Error + Send + Sync>,
+);
 
 #[derive(Error, Debug)]
 pub enum SaveError {

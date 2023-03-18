@@ -26,8 +26,6 @@ impl Fontgarden {
     }
 
     const COMMON_SET_NAME: &str = "Common";
-    const SET_CSV_HEADER: [&str; 4] =
-        ["name", "postscript_name", "codepoints", "opentype_category"];
 
     pub fn load(path: &Path) -> Result<Self, LoadError> {
         if !path.is_dir() {
@@ -45,48 +43,42 @@ impl Fontgarden {
                 continue;
             }
             let path = entry.path();
-            match (path.file_stem(), path.extension().and_then(OsStr::to_str)) {
-                (Some(stem), Some("csv")) => {
-                    if let Some(set_filename) = stem.to_string_lossy().strip_prefix("set.") {
-                        let set_name = filename_to_name(set_filename);
+            if path.extension().and_then(OsStr::to_str) != Some("csv") {
+                continue;
+            }
+            let Some(path_stem) = path.file_stem().map(|s| s.to_string_lossy()) else {
+                continue;
+            };
+            let Some(set_filename) = path_stem.strip_prefix("set.") else {
+                continue;
+            };
 
-                        let mut reader = csv::Reader::from_path(&path)
-                            .map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
-                        type Record = (String, Option<String>, String, OpenTypeCategory);
-                        for result in reader.deserialize() {
-                            let (glyph_name, postscript_name, codepoints_string, opentype_category): Record =
-                                result.map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
+            let set_name = filename_to_name(set_filename);
 
-                            if glyphs.contains_key(&glyph_name) {
-                                return Err(LoadError::DuplicateGlyphs(set_name, glyph_name));
-                            }
+            let mut reader = csv::Reader::from_path(&path)
+                .map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
 
-                            let codepoints = parse_codepoints(&codepoints_string).map_err(|e| {
-                                LoadError::InvalidCodepoints(
-                                    set_name.clone(),
-                                    glyph_name.clone(),
-                                    codepoints_string,
-                                    e,
-                                )
-                            })?;
+            for result in reader.deserialize() {
+                let record: SetRecord =
+                    result.map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
 
-                            glyphs.insert(
-                                glyph_name,
-                                Glyph {
-                                    codepoints,
-                                    layers: HashMap::new(),
-                                    opentype_category,
-                                    postscript_name,
-                                    set: match set_name.as_ref() {
-                                        Self::COMMON_SET_NAME => None,
-                                        _ => Some(set_name.clone()),
-                                    },
-                                },
-                            );
-                        }
-                    }
+                if glyphs.contains_key(&record.name) {
+                    return Err(LoadError::DuplicateGlyphs(set_name, record.name.clone()));
                 }
-                _ => continue,
+
+                glyphs.insert(
+                    record.name,
+                    Glyph {
+                        codepoints: record.codepoints,
+                        layers: HashMap::new(),
+                        opentype_category: record.opentype_category,
+                        postscript_name: record.postscript_name,
+                        set: match set_name.as_ref() {
+                            Self::COMMON_SET_NAME => None,
+                            _ => Some(set_name.clone()),
+                        },
+                    },
+                );
             }
         }
 
@@ -153,24 +145,16 @@ impl Fontgarden {
             let mut writer = csv::Writer::from_path(&set_info_path)
                 .map_err(|e| SaveError::SaveSetData(set_name.into(), e))?;
 
-            writer
-                .write_record(Self::SET_CSV_HEADER)
-                .map_err(|e| SaveError::SaveSetData(set_name.into(), e))?;
             for name in glyph_names {
                 let glyph = &self.glyphs[name];
-                let codepoints_str: String = glyph
-                    .codepoints
-                    .iter()
-                    .map(|c| format!("{:04X}", c as usize))
-                    .collect::<Vec<_>>()
-                    .join(" ");
+
                 writer
-                    .serialize((
-                        name,
-                        &glyph.postscript_name,
-                        codepoints_str,
-                        &glyph.opentype_category,
-                    ))
+                    .serialize(SetRecord {
+                        name: name.to_string(),
+                        postscript_name: glyph.postscript_name.clone(),
+                        codepoints: glyph.codepoints.clone(),
+                        opentype_category: glyph.opentype_category.clone(),
+                    })
                     .map_err(|e| SaveError::SaveSetData(set_name.into(), e))?;
             }
             writer
@@ -207,14 +191,56 @@ impl Fontgarden {
     }
 }
 
-fn parse_codepoints(v: &str) -> Result<Codepoints, Box<dyn std::error::Error + Send + Sync>> {
-    let mut codepoints = Codepoints::new([]);
-    for codepoint in v.split_whitespace() {
-        let codepoint = u32::from_str_radix(codepoint, 16)?;
-        let codepoint = char::try_from(codepoint)?;
-        codepoints.insert(codepoint);
+#[derive(Debug, Serialize, Deserialize)]
+struct SetRecord {
+    name: String,
+    postscript_name: Option<String>,
+    #[serde(with = "codepoints_serde")]
+    codepoints: Codepoints,
+    #[serde(default, skip_serializing_if = "is_default")]
+    opentype_category: OpenTypeCategory,
+}
+
+/// Custom parsing and serilaizing for codepoints, because we use hex-style strings in
+/// the CSV files.
+mod codepoints_serde {
+    use serde::Serializer;
+
+    use crate::errors;
+
+    use super::*;
+
+    pub fn serialize<S>(codepoints: &Codepoints, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let codepoints_str = codepoints
+            .iter()
+            .map(|c| format!("{:04X}", c as usize))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        serializer.serialize_str(&codepoints_str)
     }
-    Ok(codepoints)
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Codepoints, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value: &str = Deserialize::deserialize(deserializer)?;
+
+        let mut codepoints = Codepoints::new([]);
+        for codepoint in value.split_whitespace() {
+            let codepoint = u32::from_str_radix(codepoint, 16).map_err(|e| {
+                serde::de::Error::custom(errors::InvalidCodepoints(value.to_string(), e.into()))
+            })?;
+            let codepoint = char::try_from(codepoint).map_err(|e| {
+                serde::de::Error::custom(errors::InvalidCodepoints(value.to_string(), e.into()))
+            })?;
+            codepoints.insert(codepoint);
+        }
+        Ok(codepoints)
+    }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -350,7 +376,7 @@ impl Default for AffineTransformation {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OpenTypeCategory {
     #[default]
