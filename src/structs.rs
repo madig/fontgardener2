@@ -197,7 +197,9 @@ struct SetRecord {
     postscript_name: Option<String>,
     #[serde(with = "codepoints_serde")]
     codepoints: Codepoints,
-    #[serde(default, skip_serializing_if = "is_default")]
+    // Note: Can't skip serializing if default because it will cut off the last column
+    // if the first glyph in the set has the default category "unassigned" (?).
+    #[serde(default)]
     opentype_category: OpenTypeCategory,
 }
 
