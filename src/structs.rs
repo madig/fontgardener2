@@ -63,7 +63,7 @@ impl Fontgarden {
                     result.map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
 
                 if glyphs.contains_key(&record.name) {
-                    return Err(LoadError::DuplicateGlyphs(set_name, record.name.clone()));
+                    return Err(LoadError::DuplicateGlyphs(set_name, record.name));
                 }
 
                 glyphs.insert(
@@ -103,10 +103,10 @@ impl Fontgarden {
                         continue;
                     }
                     // TODO: Return an error if filename conversion to UTF-8 fails?
-                    let Some(layer_filename_stem) = layer_path.file_stem().map(OsStr::to_str).flatten() else {
+                    let Some(layer_filename_stem) = layer_path.file_stem().and_then(OsStr::to_str) else {
                         continue;
                     };
-                    let Some("json") = layer_path.extension().map(OsStr::to_str).flatten() else {
+                    let Some("json") = layer_path.extension().and_then(OsStr::to_str) else {
                         continue;
                     };
 

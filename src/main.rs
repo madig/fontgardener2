@@ -87,13 +87,13 @@ fn command_export(
     output_dir: &Path,
 ) -> Result<(), anyhow::Error> {
     let sources: HashMap<String, norad::Font> =
-        export_ufos_from_fontgarden(&fontgarden, source_names)?;
+        export_ufos_from_fontgarden(fontgarden, source_names)?;
 
-    std::fs::create_dir_all(&output_dir)?;
+    std::fs::create_dir_all(output_dir)?;
     sources
         .into_par_iter()
         .try_for_each(|(source_name, source)| {
-            source.save(&output_dir.join(source_name).with_extension("ufo"))
+            source.save(output_dir.join(source_name).with_extension("ufo"))
         })?;
 
     Ok(())
@@ -119,13 +119,13 @@ fn export_ufos_from_fontgarden(
         for (layer_name, layer) in glyph.layers.iter().filter(|(layer_name, _)| {
             source_names.is_empty() || source_names.contains(layer_name.as_str())
         }) {
-            match layer_name.split_once(".") {
+            match layer_name.split_once('.') {
                 Some((base, suffix)) => {
                     let ufo: &mut norad::Font = ufos.entry(base.to_string()).or_default();
                     let ufo_glyph =
                         convert_fontgarden_layer_to_ufo_glyph(None, ufo_glyph_name.clone(), layer)?;
                     ufo.layers
-                        .get_or_create_layer(&suffix)
+                        .get_or_create_layer(suffix)
                         .map_err(|e| SourceSaveError::GlyphNamingError(suffix.into(), e))?
                         .insert_glyph(ufo_glyph);
                 }
@@ -183,7 +183,7 @@ fn convert_fontgarden_layer_to_ufo_glyph(
     let mut ufo_glyph = norad::Glyph::new(&glyph_name);
 
     if let Some(glyph) = glyph {
-        ufo_glyph.codepoints = glyph.codepoints.clone().into();
+        ufo_glyph.codepoints = glyph.codepoints.clone();
     }
 
     ufo_glyph.width = layer.x_advance.unwrap_or_default();
