@@ -1,10 +1,13 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use glyphsinfo_rs::GlyphData;
 
 use crate::{
-    errors::SourceLoadError,
-    structs::{Fontgarden, Layer},
+    errors::{SourceLoadError, SourceSaveError},
+    structs::{Fontgarden, Glyph, Layer, OpenTypeCategory},
 };
 
 impl Fontgarden {
@@ -84,6 +87,82 @@ impl Fontgarden {
 
         Ok(())
     }
+
+    pub fn export_ufo_sources(
+        &self,
+        source_names: &HashSet<&str>,
+    ) -> Result<HashMap<String, norad::Font>, SourceSaveError> {
+        let mut ufos: HashMap<String, norad::Font> = HashMap::new();
+
+        let mut postscript_names = plist::Dictionary::new();
+        let mut opentype_categories = plist::Dictionary::new();
+
+        for (glyph_name, glyph) in self.glyphs.iter() {
+            let ufo_glyph_name = norad::Name::new(glyph_name)
+                .map_err(|e| SourceSaveError::GlyphNamingError(glyph_name.clone(), e))?;
+            for (layer_name, layer) in glyph.layers.iter().filter(|(layer_name, _)| {
+                source_names.is_empty() || source_names.contains(layer_name.as_str())
+            }) {
+                match layer_name.split_once('.') {
+                    Some((base, suffix)) => {
+                        let ufo: &mut norad::Font = ufos.entry(base.to_string()).or_default();
+                        let ufo_glyph = convert_fontgarden_layer_to_ufo_glyph(
+                            None,
+                            ufo_glyph_name.clone(),
+                            layer,
+                        )?;
+                        ufo.layers
+                            .get_or_create_layer(suffix)
+                            .map_err(|e| SourceSaveError::GlyphNamingError(suffix.into(), e))?
+                            .insert_glyph(ufo_glyph);
+                    }
+                    None => {
+                        let ufo: &mut norad::Font = ufos.entry(layer_name.to_string()).or_default();
+                        let ufo_glyph = convert_fontgarden_layer_to_ufo_glyph(
+                            Some(glyph),
+                            ufo_glyph_name.clone(),
+                            layer,
+                        )?;
+                        ufo.layers.default_layer_mut().insert_glyph(ufo_glyph);
+
+                        if let Some(postscript_name) = &glyph.postscript_name {
+                            postscript_names
+                                .insert(glyph_name.into(), postscript_name.clone().into());
+                        }
+                        if glyph.opentype_category != OpenTypeCategory::Unassigned {
+                            let otc: String =
+                                serde_json::to_string(&glyph.opentype_category).unwrap();
+                            opentype_categories.insert(glyph_name.into(), otc.into());
+                        }
+                    }
+                }
+            }
+        }
+
+        for (source_name, source) in ufos.iter_mut() {
+            source.font_info.style_name = Some(source_name.clone());
+        }
+
+        if !postscript_names.is_empty() {
+            for source in ufos.values_mut() {
+                source.lib.insert(
+                    "public.postscriptNames".into(),
+                    postscript_names.clone().into(),
+                );
+            }
+        }
+
+        if !opentype_categories.is_empty() {
+            for source in ufos.values_mut() {
+                source.lib.insert(
+                    "public.openTypeCategories".into(),
+                    opentype_categories.clone().into(),
+                );
+            }
+        }
+
+        Ok(ufos)
+    }
 }
 
 fn load_sources(sources: &[PathBuf]) -> Result<HashMap<String, norad::Font>, SourceLoadError> {
@@ -125,4 +204,40 @@ fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<Stri
             .and_then(|record| record.script.as_ref().map(|s| format!("{s:?}")));
     }
     None
+}
+
+fn convert_fontgarden_layer_to_ufo_glyph(
+    glyph: Option<&Glyph>,
+    glyph_name: norad::Name,
+    layer: &Layer,
+) -> Result<norad::Glyph, SourceSaveError> {
+    let mut ufo_glyph = norad::Glyph::new(&glyph_name);
+
+    if let Some(glyph) = glyph {
+        ufo_glyph.codepoints = glyph.codepoints.clone();
+    }
+
+    ufo_glyph.width = layer.x_advance.unwrap_or_default();
+    if let (Some(y_advance), Some(vertical_origin)) = (layer.y_advance, layer.vertical_origin) {
+        ufo_glyph.height = y_advance;
+        ufo_glyph
+            .lib
+            .insert("public.verticalOrigin".into(), vertical_origin.into());
+    }
+
+    ufo_glyph.anchors = layer
+        .anchors
+        .iter()
+        .map(|x| x.try_into())
+        .collect::<Result<_, _>>()
+        .map_err(|e| SourceSaveError::AnchorNamingError(glyph_name.to_string(), e))?;
+    ufo_glyph.contours = layer.contours.iter().map(|l| l.into()).collect();
+    ufo_glyph.components = layer
+        .components
+        .iter()
+        .map(|x| x.try_into())
+        .collect::<Result<_, _>>()
+        .map_err(|e| SourceSaveError::ComponentNamingError(glyph_name.to_string(), e))?;
+
+    Ok(ufo_glyph)
 }
