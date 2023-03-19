@@ -7,7 +7,6 @@ use clap::{CommandFactory, Parser, Subcommand};
 use errors::{SourceLoadError, SourceSaveError};
 use glyphsinfo_rs::{self, GlyphData};
 use rayon::prelude::*;
-use serde::Serialize;
 
 use structs::{Fontgarden, OpenTypeCategory};
 
