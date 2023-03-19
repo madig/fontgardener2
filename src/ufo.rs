@@ -4,6 +4,7 @@ use std::{
 };
 
 use glyphsinfo_rs::GlyphData;
+use norad::Codepoints;
 
 use crate::{
     errors::{SourceLoadError, SourceSaveError},
@@ -106,11 +107,7 @@ impl Fontgarden {
                 match layer_name.split_once('.') {
                     Some((base, suffix)) => {
                         let ufo: &mut norad::Font = ufos.entry(base.to_string()).or_default();
-                        let ufo_glyph = convert_fontgarden_layer_to_ufo_glyph(
-                            None,
-                            ufo_glyph_name.clone(),
-                            layer,
-                        )?;
+                        let ufo_glyph = layer.export_to_ufo_glyph(ufo_glyph_name.clone(), None)?;
                         ufo.layers
                             .get_or_create_layer(suffix)
                             .map_err(|e| SourceSaveError::GlyphNamingError(suffix.into(), e))?
@@ -118,11 +115,8 @@ impl Fontgarden {
                     }
                     None => {
                         let ufo: &mut norad::Font = ufos.entry(layer_name.to_string()).or_default();
-                        let ufo_glyph = convert_fontgarden_layer_to_ufo_glyph(
-                            Some(glyph),
-                            ufo_glyph_name.clone(),
-                            layer,
-                        )?;
+                        let ufo_glyph = layer
+                            .export_to_ufo_glyph(ufo_glyph_name.clone(), Some(&glyph.codepoints))?;
                         ufo.layers.default_layer_mut().insert_glyph(ufo_glyph);
 
                         if let Some(postscript_name) = &glyph.postscript_name {
@@ -162,6 +156,44 @@ impl Fontgarden {
         }
 
         Ok(ufos)
+    }
+}
+
+impl Layer {
+    pub fn export_to_ufo_glyph(
+        &self,
+        name: norad::Name,
+        codepoints: Option<&Codepoints>,
+    ) -> Result<norad::Glyph, SourceSaveError> {
+        let mut ufo_glyph = norad::Glyph::new(&name);
+
+        if let Some(codepoints) = codepoints {
+            ufo_glyph.codepoints = codepoints.clone();
+        }
+
+        ufo_glyph.width = self.x_advance.unwrap_or_default();
+        if let (Some(y_advance), Some(vertical_origin)) = (self.y_advance, self.vertical_origin) {
+            ufo_glyph.height = y_advance;
+            ufo_glyph
+                .lib
+                .insert("public.verticalOrigin".into(), vertical_origin.into());
+        }
+
+        ufo_glyph.anchors = self
+            .anchors
+            .iter()
+            .map(|anchor| anchor.try_into())
+            .collect::<Result<_, _>>()
+            .map_err(|e| SourceSaveError::AnchorNamingError(name.to_string(), e))?;
+        ufo_glyph.contours = self.contours.iter().map(|contour| contour.into()).collect();
+        ufo_glyph.components = self
+            .components
+            .iter()
+            .map(|component| component.try_into())
+            .collect::<Result<_, _>>()
+            .map_err(|e| SourceSaveError::ComponentNamingError(name.to_string(), e))?;
+
+        Ok(ufo_glyph)
     }
 }
 
