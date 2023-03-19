@@ -1,143 +1,105 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
-use clap::Parser;
-use errors::SourceLoadError;
-use glyphsinfo_rs::{self, GlyphData};
+use clap::{CommandFactory, Parser, Subcommand};
+use rayon::prelude::*;
+
 use structs::Fontgarden;
 
 mod errors;
 mod filenames;
 mod structs;
+mod ufo;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Sources to import and write to /tmp.
-    #[arg(num_args = 1..)]
-    sources: Vec<PathBuf>,
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    Import {
+        /// Fontgarden package path to export from.
+        fontgarden_path: PathBuf,
+
+        /// Sources to import.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+    },
+    Export {
+        /// Fontgarden package path to export from.
+        fontgarden_path: PathBuf,
+
+        /// Directory to export into [default: current dir].
+        output_dir: Option<PathBuf>,
+
+        /// Sources to export glyphs for [default: all]
+        #[arg(long = "source-name", value_name = "SOURCE_NAME")]
+        source_names: Vec<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let fontgarden = import_ufos_into_fontgarden(&cli.sources)?;
-    let file_name = Path::new("/tmp/font.fontgarden");
-    fontgarden.save(file_name)?;
+    match cli.command {
+        Commands::Import {
+            fontgarden_path,
+            sources,
+        } => {
+            if sources.is_empty() {
+                error_and_exit(
+                    clap::error::ErrorKind::WrongNumberOfValues,
+                    "must give at least one source to import",
+                )
+            }
+            let mut fontgarden = if fontgarden_path.exists() {
+                Fontgarden::load(&fontgarden_path)?
+            } else {
+                Fontgarden::new()
+            };
+            fontgarden.import_ufo_sources(&sources)?;
+            fontgarden.save(&fontgarden_path)?;
+        }
+        Commands::Export {
+            fontgarden_path,
+            source_names,
+            output_dir,
+        } => {
+            let fontgarden = Fontgarden::load(&fontgarden_path)?;
+            let source_names: HashSet<&str> = source_names.iter().map(|s| s.as_str()).collect();
+            let output_dir = output_dir.unwrap_or_else(|| PathBuf::from("."));
+            command_export(&fontgarden, &source_names, &output_dir)?;
+        }
+    }
 
     Ok(())
 }
 
-fn import_ufos_into_fontgarden(sources: &[PathBuf]) -> Result<Fontgarden, anyhow::Error> {
-    let sources = load_sources(sources)?;
-    let default_source = match sources.get("Regular") {
-        Some(font) => font,
-        None => sources.values().next().unwrap(),
-    };
+fn command_export(
+    fontgarden: &Fontgarden,
+    source_names: &HashSet<&str>,
+    output_dir: &Path,
+) -> Result<(), anyhow::Error> {
+    let sources: HashMap<String, norad::Font> = fontgarden.export_ufo_sources(source_names)?;
 
-    let mut fontgarden = Fontgarden::new();
-    let glyph_info = glyphsinfo_rs::GlyphData::default();
+    std::fs::create_dir_all(output_dir)?;
+    sources
+        .into_par_iter()
+        .try_for_each(|(source_name, source)| {
+            source.save(output_dir.join(source_name).with_extension("ufo"))
+        })?;
 
-    for (source_name, source) in &sources {
-        for layer in source.iter_layers() {
-            let layer_name = if std::ptr::eq(layer, source.layers.default_layer()) {
-                source_name.clone()
-            } else if layer.name() == &"public.background" {
-                format!("{}.{}", &source_name, "background")
-            } else {
-                format!("{}.{}", &source_name, layer.name())
-            };
-
-            for glyph in layer.iter() {
-                let mut fontgarden_glyph = fontgarden
-                    .glyphs
-                    .entry(glyph.name().to_string())
-                    .or_default();
-
-                if std::ptr::eq(source, default_source) {
-                    fontgarden_glyph.codepoints = glyph.codepoints.clone();
-                    fontgarden_glyph.set = categorize_glyph(glyph, &glyph_info);
-                }
-                let fontgarden_layer: structs::Layer = glyph.into();
-                fontgarden_glyph
-                    .layers
-                    .insert(layer_name.clone(), fontgarden_layer);
-            }
-        }
-    }
-
-    if let Some(names) = default_source
-        .lib
-        .get("public.postscriptNames")
-        .and_then(|v| v.as_dictionary())
-    {
-        for (glyph, name) in names.iter() {
-            fontgarden
-                .glyphs
-                .entry(glyph.to_string())
-                .and_modify(|g| g.postscript_name = name.as_string().map(|n| n.to_string()));
-        }
-    }
-
-    if let Some(names) = default_source
-        .lib
-        .get("public.openTypeCategories")
-        .and_then(|v| v.as_dictionary())
-    {
-        for (glyph, name) in names.iter() {
-            fontgarden.glyphs.entry(glyph.to_string()).and_modify(|g| {
-                g.opentype_category = name
-                    .as_string()
-                    .map(|n| n.parse().unwrap_or_default())
-                    .unwrap_or_default()
-            });
-        }
-    }
-
-    Ok(fontgarden)
+    Ok(())
 }
 
-fn load_sources(sources: &[PathBuf]) -> Result<HashMap<String, norad::Font>, SourceLoadError> {
-    let mut source_by_name = HashMap::new();
-    for source_path in sources {
-        let ufo_source = norad::Font::load(source_path)
-            .map_err(|e| SourceLoadError::Ufo(source_path.clone(), e))?;
-        let source_name = ufo_source
-            .font_info
-            .style_name
-            .as_ref()
-            .map(|s| s.to_string())
-            .unwrap_or(String::from("Regular"));
-        if source_by_name.contains_key(&source_name) {
-            return Err(SourceLoadError::DuplicateLayerName(
-                source_name,
-                source_path.clone(),
-            ));
-        }
-        source_by_name.insert(source_name, ufo_source);
-    }
-    Ok(source_by_name)
-}
-
-fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<String> {
-    if let Some(unicode) = glyph.codepoints.iter().next() {
-        return glyph_info
-            .record_for_unicode(unicode)
-            .and_then(|record| record.script.as_ref().map(|s| format!("{s:?}")));
-    }
-    if let Some(record) = glyph_info.record_for_name(glyph.name()) {
-        return record.script.as_ref().map(|s| format!("{s:?}"));
-    }
-    // FIXME: This also categorizes danda-deva.loclBENG as Devanagari because the parent
-    // is. Local variants should stay with their scripts if possible.
-    if let Some((base_name, _)) = glyph.name().split_once('.') {
-        return glyph_info
-            .record_for_name(base_name)
-            .and_then(|record| record.script.as_ref().map(|s| format!("{s:?}")));
-    }
-    None
+fn error_and_exit(kind: clap::error::ErrorKind, message: impl std::fmt::Display) -> ! {
+    let mut cmd = Cli::command();
+    cmd.error(kind, message).exit();
 }
 
 #[cfg(test)]
@@ -191,18 +153,49 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip() {
-        let fontgarden = import_ufos_into_fontgarden(&[
-            "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
-            "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
-            "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
-            "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
-        ])
-        .unwrap();
+    fn roundtrip_save_load() {
+        let mut fontgarden = Fontgarden::new();
+        fontgarden
+            .import_ufo_sources(&[
+                "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
+                "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
+                "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
+                "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
+            ])
+            .unwrap();
 
         let fontgarden_path = tempfile::tempdir().unwrap();
         fontgarden.save(fontgarden_path.path()).unwrap();
         let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
+
+    #[test]
+    fn roundtrip_export_import() {
+        let mut fontgarden = Fontgarden::new();
+        fontgarden
+            .import_ufo_sources(&[
+                "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
+                "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
+                "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
+                "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
+            ])
+            .unwrap();
+
+        let export_dir = tempfile::tempdir().unwrap();
+
+        command_export(&fontgarden, &HashSet::new(), export_dir.path()).unwrap();
+
+        let mut roundtripped_fontgarden = Fontgarden::new();
+        roundtripped_fontgarden
+            .import_ufo_sources(&[
+                export_dir.path().join("BoldCondensed.ufo"),
+                export_dir.path().join("BoldWide.ufo"),
+                export_dir.path().join("LightCondensed.ufo"),
+                export_dir.path().join("LightWide.ufo"),
+            ])
+            .unwrap();
 
         assert_eq!(fontgarden, roundtripped_fontgarden);
     }

@@ -63,7 +63,7 @@ impl Fontgarden {
                     result.map_err(|e| LoadError::LoadSetData(path.clone(), e))?;
 
                 if glyphs.contains_key(&record.name) {
-                    return Err(LoadError::DuplicateGlyphs(set_name, record.name.clone()));
+                    return Err(LoadError::DuplicateGlyphs(set_name, record.name));
                 }
 
                 glyphs.insert(
@@ -103,10 +103,10 @@ impl Fontgarden {
                         continue;
                     }
                     // TODO: Return an error if filename conversion to UTF-8 fails?
-                    let Some(layer_filename_stem) = layer_path.file_stem().map(OsStr::to_str).flatten() else {
+                    let Some(layer_filename_stem) = layer_path.file_stem().and_then(OsStr::to_str) else {
                         continue;
                     };
-                    let Some("json") = layer_path.extension().map(OsStr::to_str).flatten() else {
+                    let Some("json") = layer_path.extension().and_then(OsStr::to_str) else {
                         continue;
                     };
 
@@ -197,7 +197,9 @@ struct SetRecord {
     postscript_name: Option<String>,
     #[serde(with = "codepoints_serde")]
     codepoints: Codepoints,
-    #[serde(default, skip_serializing_if = "is_default")]
+    // Note: Can't skip serializing if default because it will cut off the last column
+    // if the first glyph in the set has the default category "unassigned" (?).
+    #[serde(default)]
     opentype_category: OpenTypeCategory,
 }
 
@@ -324,7 +326,7 @@ pub struct Component {
     pub transformation: AffineTransformation,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AffineTransformation {
     #[serde(default = "one", skip_serializing_if = "is_one")]
     pub x_scale: f64,
@@ -448,11 +450,32 @@ impl From<&norad::Anchor> for Anchor {
     }
 }
 
+impl TryFrom<&Anchor> for norad::Anchor {
+    type Error = norad::error::NamingError;
+
+    fn try_from(anchor: &Anchor) -> Result<Self, Self::Error> {
+        Ok(Self::new(
+            anchor.x,
+            anchor.y,
+            Some(norad::Name::new(&anchor.name)?),
+            None,
+            None,
+            None,
+        ))
+    }
+}
+
 impl From<&norad::Contour> for Contour {
     fn from(value: &norad::Contour) -> Self {
         Self {
             points: value.points.iter().map(|x| x.into()).collect(),
         }
+    }
+}
+
+impl From<&Contour> for norad::Contour {
+    fn from(value: &Contour) -> Self {
+        Self::new(value.points.iter().map(|x| x.into()).collect(), None, None)
     }
 }
 
@@ -464,6 +487,20 @@ impl From<&norad::ContourPoint> for ContourPoint {
             typ: value.typ.clone().into(),
             smooth: value.smooth,
         }
+    }
+}
+
+impl From<&ContourPoint> for norad::ContourPoint {
+    fn from(point: &ContourPoint) -> Self {
+        Self::new(
+            point.x,
+            point.y,
+            point.typ.clone().into(),
+            point.smooth,
+            None,
+            None,
+            None,
+        )
     }
 }
 
@@ -479,6 +516,18 @@ impl From<norad::PointType> for PointType {
     }
 }
 
+impl From<PointType> for norad::PointType {
+    fn from(value: PointType) -> Self {
+        match value {
+            PointType::Curve => Self::Curve,
+            PointType::Line => Self::Line,
+            PointType::Move => Self::Move,
+            PointType::OffCurve => Self::OffCurve,
+            PointType::QCurve => Self::QCurve,
+        }
+    }
+}
+
 impl From<&norad::Component> for Component {
     fn from(component: &norad::Component) -> Self {
         Self {
@@ -488,8 +537,34 @@ impl From<&norad::Component> for Component {
     }
 }
 
+impl TryFrom<&Component> for norad::Component {
+    type Error = norad::error::NamingError;
+
+    fn try_from(component: &Component) -> Result<Self, Self::Error> {
+        Ok(Self::new(
+            norad::Name::new(&component.name)?,
+            component.transformation.clone().into(),
+            None,
+            None,
+        ))
+    }
+}
+
 impl From<norad::AffineTransform> for AffineTransformation {
     fn from(transform: norad::AffineTransform) -> Self {
+        Self {
+            x_scale: transform.x_scale,
+            xy_scale: transform.xy_scale,
+            yx_scale: transform.yx_scale,
+            y_scale: transform.y_scale,
+            x_offset: transform.x_offset,
+            y_offset: transform.y_offset,
+        }
+    }
+}
+
+impl From<AffineTransformation> for norad::AffineTransform {
+    fn from(transform: AffineTransformation) -> Self {
         Self {
             x_scale: transform.x_scale,
             xy_scale: transform.xy_scale,
