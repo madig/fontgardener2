@@ -36,7 +36,11 @@ pub(crate) struct InvalidCodepoints(
 #[derive(Error, Debug)]
 pub enum SourceSaveError {
     #[error("Glyph name {0} is not alled by the UFO specification")]
-    UfoNamingError(String, #[source] norad::error::NamingError),
+    GlyphNamingError(String, #[source] norad::error::NamingError),
+    #[error("Glyph named {0} has anchor whose name is not alled by the UFO specification")]
+    AnchorNamingError(String, #[source] norad::error::NamingError),
+    #[error("Glyph named {0} has component whose name is not alled by the UFO specification")]
+    ComponentNamingError(String, #[source] norad::error::NamingError),
 }
 
 #[derive(Error, Debug)]

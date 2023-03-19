@@ -324,7 +324,7 @@ pub struct Component {
     pub transformation: AffineTransformation,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AffineTransformation {
     #[serde(default = "one", skip_serializing_if = "is_one")]
     pub x_scale: f64,
@@ -448,11 +448,32 @@ impl From<&norad::Anchor> for Anchor {
     }
 }
 
+impl TryFrom<&Anchor> for norad::Anchor {
+    type Error = norad::error::NamingError;
+
+    fn try_from(anchor: &Anchor) -> Result<Self, Self::Error> {
+        Ok(Self::new(
+            anchor.x,
+            anchor.y,
+            Some(norad::Name::new(&anchor.name)?),
+            None,
+            None,
+            None,
+        ))
+    }
+}
+
 impl From<&norad::Contour> for Contour {
     fn from(value: &norad::Contour) -> Self {
         Self {
             points: value.points.iter().map(|x| x.into()).collect(),
         }
+    }
+}
+
+impl From<&Contour> for norad::Contour {
+    fn from(value: &Contour) -> Self {
+        Self::new(value.points.iter().map(|x| x.into()).collect(), None, None)
     }
 }
 
@@ -467,6 +488,20 @@ impl From<&norad::ContourPoint> for ContourPoint {
     }
 }
 
+impl From<&ContourPoint> for norad::ContourPoint {
+    fn from(point: &ContourPoint) -> Self {
+        Self::new(
+            point.x,
+            point.y,
+            point.typ.clone().into(),
+            point.smooth,
+            None,
+            None,
+            None,
+        )
+    }
+}
+
 impl From<norad::PointType> for PointType {
     fn from(value: norad::PointType) -> Self {
         match value {
@@ -475,6 +510,18 @@ impl From<norad::PointType> for PointType {
             norad::PointType::Move => Self::Move,
             norad::PointType::OffCurve => Self::OffCurve,
             norad::PointType::QCurve => Self::QCurve,
+        }
+    }
+}
+
+impl From<PointType> for norad::PointType {
+    fn from(value: PointType) -> Self {
+        match value {
+            PointType::Curve => Self::Curve,
+            PointType::Line => Self::Line,
+            PointType::Move => Self::Move,
+            PointType::OffCurve => Self::OffCurve,
+            PointType::QCurve => Self::QCurve,
         }
     }
 }
@@ -494,7 +541,7 @@ impl TryFrom<&Component> for norad::Component {
     fn try_from(component: &Component) -> Result<Self, Self::Error> {
         Ok(Self::new(
             norad::Name::new(&component.name)?,
-            component.transformation.into(),
+            component.transformation.clone().into(),
             None,
             None,
         ))

@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use errors::{SourceLoadError, SourceSaveError};
 use glyphsinfo_rs::{self, GlyphData};
 use rayon::prelude::*;
@@ -27,20 +27,19 @@ enum Commands {
         fontgarden_path: PathBuf,
 
         /// Sources to import.
-        #[arg(num_args = 1..)]
+        #[arg(required = true)]
         sources: Vec<PathBuf>,
     },
     Export {
         /// Fontgarden package path to export from.
         fontgarden_path: PathBuf,
 
+        /// Directory to export into [default: current dir].
+        output_dir: Option<PathBuf>,
+
         /// Sources to export glyphs for [default: all]
         #[arg(long = "source-name", value_name = "SOURCE_NAME")]
         source_names: Vec<String>,
-
-        /// Directory to export into [default: current dir].
-        #[arg(long)]
-        output_dir: Option<PathBuf>,
     },
 }
 
@@ -52,6 +51,12 @@ fn main() -> anyhow::Result<()> {
             fontgarden_path,
             sources,
         } => {
+            if sources.is_empty() {
+                error_and_exit(
+                    clap::error::ErrorKind::WrongNumberOfValues,
+                    "must give at least one source to import",
+                )
+            }
             let fontgarden = import_ufos_into_fontgarden(&sources)?;
             fontgarden.save(&fontgarden_path)?;
         }
@@ -62,44 +67,55 @@ fn main() -> anyhow::Result<()> {
         } => {
             let fontgarden = Fontgarden::load(&fontgarden_path)?;
             let source_names: HashSet<&str> = source_names.iter().map(|s| s.as_str()).collect();
-            let sources: HashMap<PathBuf, norad::Font> =
+            let sources: HashMap<String, norad::Font> =
                 export_ufos_from_fontgarden(&fontgarden, &source_names)?;
             let output_dir = output_dir.unwrap_or_else(|| PathBuf::from("."));
             std::fs::create_dir_all(&output_dir)?;
             sources
                 .into_par_iter()
-                .try_for_each(|(source_path, source)| source.save(&output_dir.join(source_path)))?;
+                .try_for_each(|(source_name, source)| {
+                    source.save(&output_dir.join(source_name).with_extension("ufo"))
+                })?;
         }
     }
 
     Ok(())
 }
 
+fn error_and_exit(kind: clap::error::ErrorKind, message: impl std::fmt::Display) -> ! {
+    let mut cmd = Cli::command();
+    cmd.error(kind, message).exit();
+}
+
 fn export_ufos_from_fontgarden(
     fontgarden: &Fontgarden,
     source_names: &HashSet<&str>,
 ) -> Result<HashMap<String, norad::Font>, SourceSaveError> {
-    let mut ufos = HashMap::new();
+    let mut ufos: HashMap<String, norad::Font> = HashMap::new();
 
     for (glyph_name, glyph) in fontgarden.glyphs.iter() {
         let ufo_glyph_name = norad::Name::new(glyph_name)
-            .map_err(|e| SourceSaveError::UfoNamingError(glyph_name.clone(), e))?;
+            .map_err(|e| SourceSaveError::GlyphNamingError(glyph_name.clone(), e))?;
         for (layer_name, layer) in glyph.layers.iter().filter(|(layer_name, _)| {
             source_names.is_empty() || source_names.contains(layer_name.as_str())
         }) {
             match layer_name.split_once(".") {
                 Some((base, suffix)) => {
-                    let ufo: &mut norad::Font = ufos.entry(&*layer_name).or_default();
-                    let ufo_glyph = convert_to_ufo_glyph(ufo_glyph_name.clone(), glyph);
-                    let ufo_layer = ufo
-                        .layers
+                    let ufo: &mut norad::Font = ufos.entry(base.to_string()).or_default();
+                    let ufo_glyph =
+                        convert_fontgarden_layer_to_ufo_glyph(None, ufo_glyph_name.clone(), layer)?;
+                    ufo.layers
                         .get_or_create_layer(&suffix)
-                        .map_err(|e| SourceSaveError::UfoNamingError(suffix.into(), e))?;
-                    ufo.layers.default_layer_mut().insert_glyph(ufo_glyph);
+                        .map_err(|e| SourceSaveError::GlyphNamingError(suffix.into(), e))?
+                        .insert_glyph(ufo_glyph);
                 }
                 None => {
-                    let ufo: &mut norad::Font = ufos.entry(&*layer_name).or_default();
-                    let ufo_glyph = convert_to_ufo_glyph(ufo_glyph_name.clone(), glyph);
+                    let ufo: &mut norad::Font = ufos.entry(layer_name.to_string()).or_default();
+                    let ufo_glyph = convert_fontgarden_layer_to_ufo_glyph(
+                        Some(glyph),
+                        ufo_glyph_name.clone(),
+                        layer,
+                    )?;
                     ufo.layers.default_layer_mut().insert_glyph(ufo_glyph);
                 }
             }
@@ -109,8 +125,40 @@ fn export_ufos_from_fontgarden(
     Ok(ufos)
 }
 
-fn convert_to_ufo_glyph(glyph_name: norad::Name, glyph: &structs::Glyph) -> norad::Glyph {
-    todo!()
+fn convert_fontgarden_layer_to_ufo_glyph(
+    glyph: Option<&structs::Glyph>,
+    glyph_name: norad::Name,
+    layer: &structs::Layer,
+) -> Result<norad::Glyph, SourceSaveError> {
+    let mut ufo_glyph = norad::Glyph::new(&glyph_name);
+
+    if let Some(glyph) = glyph {
+        ufo_glyph.codepoints = glyph.codepoints.clone().into();
+    }
+
+    ufo_glyph.width = layer.x_advance.unwrap_or_default();
+    if let (Some(y_advance), Some(vertical_origin)) = (layer.y_advance, layer.vertical_origin) {
+        ufo_glyph.height = y_advance;
+        ufo_glyph
+            .lib
+            .insert("public.verticalOrigin".into(), vertical_origin.into());
+    }
+
+    ufo_glyph.anchors = layer
+        .anchors
+        .iter()
+        .map(|x| x.try_into())
+        .collect::<Result<_, _>>()
+        .map_err(|e| SourceSaveError::AnchorNamingError(glyph_name.to_string(), e))?;
+    ufo_glyph.contours = layer.contours.iter().map(|l| l.into()).collect();
+    ufo_glyph.components = layer
+        .components
+        .iter()
+        .map(|x| x.try_into())
+        .collect::<Result<_, _>>()
+        .map_err(|e| SourceSaveError::ComponentNamingError(glyph_name.to_string(), e))?;
+
+    Ok(ufo_glyph)
 }
 
 fn import_ufos_into_fontgarden(sources: &[PathBuf]) -> Result<Fontgarden, anyhow::Error> {
