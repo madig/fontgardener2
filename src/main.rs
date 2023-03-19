@@ -1,11 +1,12 @@
 use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
+    collections::{HashMap, HashSet},
+    path::PathBuf,
 };
 
-use clap::Parser;
-use errors::SourceLoadError;
+use clap::{Parser, Subcommand};
+use errors::{SourceLoadError, SourceSaveError};
 use glyphsinfo_rs::{self, GlyphData};
+use rayon::prelude::*;
 use structs::Fontgarden;
 
 mod errors;
@@ -15,19 +16,101 @@ mod structs;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Sources to import and write to /tmp.
-    #[arg(num_args = 1..)]
-    sources: Vec<PathBuf>,
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    Import {
+        /// Fontgarden package path to export from.
+        fontgarden_path: PathBuf,
+
+        /// Sources to import.
+        #[arg(num_args = 1..)]
+        sources: Vec<PathBuf>,
+    },
+    Export {
+        /// Fontgarden package path to export from.
+        fontgarden_path: PathBuf,
+
+        /// Sources to export glyphs for [default: all]
+        #[arg(long = "source-name", value_name = "SOURCE_NAME")]
+        source_names: Vec<String>,
+
+        /// Directory to export into [default: current dir].
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let fontgarden = import_ufos_into_fontgarden(&cli.sources)?;
-    let file_name = Path::new("/tmp/font.fontgarden");
-    fontgarden.save(file_name)?;
+    match cli.command {
+        Commands::Import {
+            fontgarden_path,
+            sources,
+        } => {
+            let fontgarden = import_ufos_into_fontgarden(&sources)?;
+            fontgarden.save(&fontgarden_path)?;
+        }
+        Commands::Export {
+            fontgarden_path,
+            source_names,
+            output_dir,
+        } => {
+            let fontgarden = Fontgarden::load(&fontgarden_path)?;
+            let source_names: HashSet<&str> = source_names.iter().map(|s| s.as_str()).collect();
+            let sources: HashMap<PathBuf, norad::Font> =
+                export_ufos_from_fontgarden(&fontgarden, &source_names)?;
+            let output_dir = output_dir.unwrap_or_else(|| PathBuf::from("."));
+            std::fs::create_dir_all(&output_dir)?;
+            sources
+                .into_par_iter()
+                .try_for_each(|(source_path, source)| source.save(&output_dir.join(source_path)))?;
+        }
+    }
 
     Ok(())
+}
+
+fn export_ufos_from_fontgarden(
+    fontgarden: &Fontgarden,
+    source_names: &HashSet<&str>,
+) -> Result<HashMap<String, norad::Font>, SourceSaveError> {
+    let mut ufos = HashMap::new();
+
+    for (glyph_name, glyph) in fontgarden.glyphs.iter() {
+        let ufo_glyph_name = norad::Name::new(glyph_name)
+            .map_err(|e| SourceSaveError::UfoNamingError(glyph_name.clone(), e))?;
+        for (layer_name, layer) in glyph.layers.iter().filter(|(layer_name, _)| {
+            source_names.is_empty() || source_names.contains(layer_name.as_str())
+        }) {
+            match layer_name.split_once(".") {
+                Some((base, suffix)) => {
+                    let ufo: &mut norad::Font = ufos.entry(&*layer_name).or_default();
+                    let ufo_glyph = convert_to_ufo_glyph(ufo_glyph_name.clone(), glyph);
+                    let ufo_layer = ufo
+                        .layers
+                        .get_or_create_layer(&suffix)
+                        .map_err(|e| SourceSaveError::UfoNamingError(suffix.into(), e))?;
+                    ufo.layers.default_layer_mut().insert_glyph(ufo_glyph);
+                }
+                None => {
+                    let ufo: &mut norad::Font = ufos.entry(&*layer_name).or_default();
+                    let ufo_glyph = convert_to_ufo_glyph(ufo_glyph_name.clone(), glyph);
+                    ufo.layers.default_layer_mut().insert_glyph(ufo_glyph);
+                }
+            }
+        }
+    }
+
+    Ok(ufos)
+}
+
+fn convert_to_ufo_glyph(glyph_name: norad::Name, glyph: &structs::Glyph) -> norad::Glyph {
+    todo!()
 }
 
 fn import_ufos_into_fontgarden(sources: &[PathBuf]) -> Result<Fontgarden, anyhow::Error> {

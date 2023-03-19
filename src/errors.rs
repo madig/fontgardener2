@@ -34,6 +34,12 @@ pub(crate) struct InvalidCodepoints(
 );
 
 #[derive(Error, Debug)]
+pub enum SourceSaveError {
+    #[error("Glyph name {0} is not alled by the UFO specification")]
+    UfoNamingError(String, #[source] norad::error::NamingError),
+}
+
+#[derive(Error, Debug)]
 pub enum SaveError {
     #[error("failed to remove target directory before overwriting")]
     Cleanup(#[source] std::io::Error),

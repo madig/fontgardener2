@@ -488,8 +488,34 @@ impl From<&norad::Component> for Component {
     }
 }
 
+impl TryFrom<&Component> for norad::Component {
+    type Error = norad::error::NamingError;
+
+    fn try_from(component: &Component) -> Result<Self, Self::Error> {
+        Ok(Self::new(
+            norad::Name::new(&component.name)?,
+            component.transformation.into(),
+            None,
+            None,
+        ))
+    }
+}
+
 impl From<norad::AffineTransform> for AffineTransformation {
     fn from(transform: norad::AffineTransform) -> Self {
+        Self {
+            x_scale: transform.x_scale,
+            xy_scale: transform.xy_scale,
+            yx_scale: transform.yx_scale,
+            y_scale: transform.y_scale,
+            x_offset: transform.x_offset,
+            y_offset: transform.y_offset,
+        }
+    }
+}
+
+impl From<AffineTransformation> for norad::AffineTransform {
+    fn from(transform: AffineTransformation) -> Self {
         Self {
             x_scale: transform.x_scale,
             xy_scale: transform.xy_scale,
