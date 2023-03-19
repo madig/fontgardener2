@@ -216,6 +216,9 @@ fn import_ufos_into_fontgarden(sources: &[PathBuf]) -> Result<Fontgarden, anyhow
     let mut fontgarden = Fontgarden::new();
     let glyph_info = glyphsinfo_rs::GlyphData::default();
 
+    // Todo: Remember which glyphs are present in a fontgarden already to only guess the
+    // set of new arrivals.
+
     for (source_name, source) in &sources {
         for layer in source.iter_layers() {
             let layer_name = if std::ptr::eq(layer, source.layers.default_layer()) {
@@ -232,10 +235,16 @@ fn import_ufos_into_fontgarden(sources: &[PathBuf]) -> Result<Fontgarden, anyhow
                     .entry(glyph.name().to_string())
                     .or_default();
 
+                // Try and source codepoints for a glyph from the default source. Also
+                // try to guess which script (for set-determining purposes) a glyph
+                // belongs to, if it doesn't belong to one yet.
+                if std::ptr::eq(source, default_source)
                     && std::ptr::eq(layer, default_source.layers.default_layer())
                 {
                     fontgarden_glyph.codepoints = glyph.codepoints.clone();
-                    fontgarden_glyph.set = categorize_glyph(glyph, &glyph_info);
+                    if fontgarden_glyph.set.is_none() {
+                        fontgarden_glyph.set = categorize_glyph(glyph, &glyph_info);
+                    }
                 }
                 let fontgarden_layer: structs::Layer = glyph.into();
                 fontgarden_glyph
