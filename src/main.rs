@@ -233,7 +233,8 @@ fn import_ufos_into_fontgarden(sources: &[PathBuf]) -> Result<Fontgarden, anyhow
                     .entry(glyph.name().to_string())
                     .or_default();
 
-                if std::ptr::eq(source, default_source) {
+                    && std::ptr::eq(layer, default_source.layers.default_layer())
+                {
                     fontgarden_glyph.codepoints = glyph.codepoints.clone();
                     fontgarden_glyph.set = categorize_glyph(glyph, &glyph_info);
                 }
