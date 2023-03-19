@@ -1,13 +1,15 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use clap::{CommandFactory, Parser, Subcommand};
 use errors::{SourceLoadError, SourceSaveError};
 use glyphsinfo_rs::{self, GlyphData};
 use rayon::prelude::*;
-use structs::Fontgarden;
+use serde::Serialize;
+
+use structs::{Fontgarden, OpenTypeCategory};
 
 mod errors;
 mod filenames;
@@ -67,17 +69,28 @@ fn main() -> anyhow::Result<()> {
         } => {
             let fontgarden = Fontgarden::load(&fontgarden_path)?;
             let source_names: HashSet<&str> = source_names.iter().map(|s| s.as_str()).collect();
-            let sources: HashMap<String, norad::Font> =
-                export_ufos_from_fontgarden(&fontgarden, &source_names)?;
             let output_dir = output_dir.unwrap_or_else(|| PathBuf::from("."));
-            std::fs::create_dir_all(&output_dir)?;
-            sources
-                .into_par_iter()
-                .try_for_each(|(source_name, source)| {
-                    source.save(&output_dir.join(source_name).with_extension("ufo"))
-                })?;
+            command_export(&fontgarden, &source_names, &output_dir)?;
         }
     }
+
+    Ok(())
+}
+
+fn command_export(
+    fontgarden: &Fontgarden,
+    source_names: &HashSet<&str>,
+    output_dir: &Path,
+) -> Result<(), anyhow::Error> {
+    let sources: HashMap<String, norad::Font> =
+        export_ufos_from_fontgarden(&fontgarden, source_names)?;
+
+    std::fs::create_dir_all(&output_dir)?;
+    sources
+        .into_par_iter()
+        .try_for_each(|(source_name, source)| {
+            source.save(&output_dir.join(source_name).with_extension("ufo"))
+        })?;
 
     Ok(())
 }
@@ -92,6 +105,9 @@ fn export_ufos_from_fontgarden(
     source_names: &HashSet<&str>,
 ) -> Result<HashMap<String, norad::Font>, SourceSaveError> {
     let mut ufos: HashMap<String, norad::Font> = HashMap::new();
+
+    let mut postscript_names = plist::Dictionary::new();
+    let mut opentype_categories = plist::Dictionary::new();
 
     for (glyph_name, glyph) in fontgarden.glyphs.iter() {
         let ufo_glyph_name = norad::Name::new(glyph_name)
@@ -117,8 +133,38 @@ fn export_ufos_from_fontgarden(
                         layer,
                     )?;
                     ufo.layers.default_layer_mut().insert_glyph(ufo_glyph);
+
+                    if let Some(postscript_name) = &glyph.postscript_name {
+                        postscript_names.insert(glyph_name.into(), postscript_name.clone().into());
+                    }
+                    if glyph.opentype_category != OpenTypeCategory::Unassigned {
+                        let otc: String = serde_json::to_string(&glyph.opentype_category).unwrap();
+                        opentype_categories.insert(glyph_name.into(), otc.into());
+                    }
                 }
             }
+        }
+    }
+
+    for (source_name, source) in ufos.iter_mut() {
+        source.font_info.style_name = Some(source_name.clone());
+    }
+
+    if !postscript_names.is_empty() {
+        for source in ufos.values_mut() {
+            source.lib.insert(
+                "public.postscriptNames".into(),
+                postscript_names.clone().into(),
+            );
+        }
+    }
+
+    if !opentype_categories.is_empty() {
+        for source in ufos.values_mut() {
+            source.lib.insert(
+                "public.openTypeCategories".into(),
+                opentype_categories.clone().into(),
+            );
         }
     }
 
@@ -322,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip() {
+    fn roundtrip_save_load() {
         let fontgarden = import_ufos_into_fontgarden(&[
             "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
             "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
@@ -334,6 +380,31 @@ mod tests {
         let fontgarden_path = tempfile::tempdir().unwrap();
         fontgarden.save(fontgarden_path.path()).unwrap();
         let roundtripped_fontgarden = Fontgarden::load(fontgarden_path.path()).unwrap();
+
+        assert_eq!(fontgarden, roundtripped_fontgarden);
+    }
+
+    #[test]
+    fn roundtrip_export_import() {
+        let fontgarden = import_ufos_into_fontgarden(&[
+            "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
+        ])
+        .unwrap();
+
+        let export_dir = tempfile::tempdir().unwrap();
+
+        command_export(&fontgarden, &HashSet::new(), export_dir.path()).unwrap();
+
+        let roundtripped_fontgarden = import_ufos_into_fontgarden(&[
+            export_dir.path().join("BoldCondensed.ufo"),
+            export_dir.path().join("BoldWide.ufo"),
+            export_dir.path().join("LightCondensed.ufo"),
+            export_dir.path().join("LightWide.ufo"),
+        ])
+        .unwrap();
 
         assert_eq!(fontgarden, roundtripped_fontgarden);
     }
