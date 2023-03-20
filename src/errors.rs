@@ -18,7 +18,7 @@ pub enum LoadError {
     NotAFontgarden,
     #[error("cannot load set '{0}' as a glyph it contains is in a different set already: {1}")]
     DuplicateGlyphs(String, String),
-    #[error("failed to save set data '{0}'")]
+    #[error("failed to load set data '{0}'")]
     LoadSetData(PathBuf, #[source] csv::Error),
     #[error("failed to load JSON data from {0} for glyph {1}")]
     LoadLayerJson(PathBuf, String, #[source] serde_json::Error),
