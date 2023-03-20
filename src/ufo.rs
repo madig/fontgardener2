@@ -8,7 +8,7 @@ use norad::Codepoints;
 
 use crate::{
     errors::{SourceLoadError, SourceSaveError},
-    structs::{Fontgarden, Glyph, Layer, OpenTypeCategory},
+    structs::{Fontgarden, Layer, OpenTypeCategory},
 };
 
 impl Fontgarden {
@@ -236,40 +236,4 @@ fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<Stri
             .and_then(|record| record.script.as_ref().map(|s| format!("{s:?}")));
     }
     None
-}
-
-fn convert_fontgarden_layer_to_ufo_glyph(
-    glyph: Option<&Glyph>,
-    glyph_name: norad::Name,
-    layer: &Layer,
-) -> Result<norad::Glyph, SourceSaveError> {
-    let mut ufo_glyph = norad::Glyph::new(&glyph_name);
-
-    if let Some(glyph) = glyph {
-        ufo_glyph.codepoints = glyph.codepoints.clone();
-    }
-
-    ufo_glyph.width = layer.x_advance.unwrap_or_default();
-    if let (Some(y_advance), Some(vertical_origin)) = (layer.y_advance, layer.vertical_origin) {
-        ufo_glyph.height = y_advance;
-        ufo_glyph
-            .lib
-            .insert("public.verticalOrigin".into(), vertical_origin.into());
-    }
-
-    ufo_glyph.anchors = layer
-        .anchors
-        .iter()
-        .map(|x| x.try_into())
-        .collect::<Result<_, _>>()
-        .map_err(|e| SourceSaveError::AnchorNamingError(glyph_name.to_string(), e))?;
-    ufo_glyph.contours = layer.contours.iter().map(|l| l.into()).collect();
-    ufo_glyph.components = layer
-        .components
-        .iter()
-        .map(|x| x.try_into())
-        .collect::<Result<_, _>>()
-        .map_err(|e| SourceSaveError::ComponentNamingError(glyph_name.to_string(), e))?;
-
-    Ok(ufo_glyph)
 }

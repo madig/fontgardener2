@@ -18,8 +18,6 @@ pub enum LoadError {
     NotAFontgarden,
     #[error("cannot load set '{0}' as a glyph it contains is in a different set already: {1}")]
     DuplicateGlyphs(String, String),
-    #[error("malformed codepoint(s) {0}")]
-    InvalidCodepoints(String, #[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("failed to save set data '{0}'")]
     LoadSetData(PathBuf, #[source] csv::Error),
     #[error("failed to load JSON data from {0} for glyph {1}")]
