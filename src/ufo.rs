@@ -12,8 +12,10 @@ use crate::{
 };
 
 impl Fontgarden {
-    pub fn import_ufo_sources(&mut self, sources: &[PathBuf]) -> Result<(), SourceLoadError> {
-        let sources = load_sources(sources)?;
+    pub fn import_ufo_sources(
+        &mut self,
+        sources: &HashMap<String, norad::Font>,
+    ) -> Result<(), SourceLoadError> {
         let default_source = match sources.get("Regular") {
             Some(font) => font,
             None => sources.values().next().unwrap(),
@@ -24,7 +26,7 @@ impl Fontgarden {
         // Todo: Remember which glyphs are present in a fontgarden already to only guess the
         // set of new arrivals.
 
-        for (source_name, source) in &sources {
+        for (source_name, source) in sources {
             for layer in source.iter_layers() {
                 // Todo: think of another char or way to separate main from subordinate
                 // layer, as '.' might be legitimately be used in a layer name.
@@ -197,7 +199,7 @@ impl Layer {
     }
 }
 
-fn load_sources(sources: &[PathBuf]) -> Result<HashMap<String, norad::Font>, SourceLoadError> {
+pub fn load_sources(sources: &[PathBuf]) -> Result<HashMap<String, norad::Font>, SourceLoadError> {
     let mut source_by_name = HashMap::new();
     for source_path in sources {
         let ufo_source = norad::Font::load(source_path)

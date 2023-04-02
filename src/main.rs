@@ -11,7 +11,7 @@ use structs::Fontgarden;
 mod errors;
 mod filenames;
 mod structs;
-mod ufo;
+pub mod ufo;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -185,15 +185,15 @@ mod tests {
 
     #[test]
     fn roundtrip_save_load() {
+        let sources = ufo::load_sources(&[
+            "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
+        ])
+        .unwrap();
         let mut fontgarden = Fontgarden::new();
-        fontgarden
-            .import_ufo_sources(&[
-                "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
-                "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
-                "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
-                "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
-            ])
-            .unwrap();
+        fontgarden.import_ufo_sources(&sources).unwrap();
 
         let fontgarden_path = tempfile::tempdir().unwrap();
         fontgarden.save(fontgarden_path.path()).unwrap();
@@ -204,28 +204,30 @@ mod tests {
 
     #[test]
     fn roundtrip_export_import() {
+        let sources = ufo::load_sources(&[
+            "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
+            "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
+        ])
+        .unwrap();
         let mut fontgarden = Fontgarden::new();
-        fontgarden
-            .import_ufo_sources(&[
-                "testdata/mutatorSans/MutatorSansBoldCondensed.ufo/".into(),
-                "testdata/mutatorSans/MutatorSansBoldWide.ufo/".into(),
-                "testdata/mutatorSans/MutatorSansLightCondensed.ufo/".into(),
-                "testdata/mutatorSans/MutatorSansLightWide.ufo/".into(),
-            ])
-            .unwrap();
+        fontgarden.import_ufo_sources(&sources).unwrap();
 
         let export_dir = tempfile::tempdir().unwrap();
 
         command_export(&fontgarden, &HashSet::new(), export_dir.path()).unwrap();
 
+        let roundtripped_sources = ufo::load_sources(&[
+            export_dir.path().join("BoldCondensed.ufo"),
+            export_dir.path().join("BoldWide.ufo"),
+            export_dir.path().join("LightCondensed.ufo"),
+            export_dir.path().join("LightWide.ufo"),
+        ])
+        .unwrap();
         let mut roundtripped_fontgarden = Fontgarden::new();
         roundtripped_fontgarden
-            .import_ufo_sources(&[
-                export_dir.path().join("BoldCondensed.ufo"),
-                export_dir.path().join("BoldWide.ufo"),
-                export_dir.path().join("LightCondensed.ufo"),
-                export_dir.path().join("LightWide.ufo"),
-            ])
+            .import_ufo_sources(&roundtripped_sources)
             .unwrap();
 
         assert_eq!(fontgarden, roundtripped_fontgarden);
