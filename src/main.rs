@@ -51,6 +51,37 @@ fn main() -> anyhow::Result<()> {
             fontgarden_path,
             sources,
         } => {
+            // To import from a UFO:
+            // 1. Read UFOs to build an import_set of the union of all their glyphs in
+            //    all layers.
+            // 2. Make an all_glyphs_set out of all of the fontgarden glyphs (just read
+            //    glyph metadata).
+            // 3. Make a reference_set out of the fontgarden glyphs of the specified
+            //    sets to import into and follow the glyphs everywhere to add components
+            //    to the reference_set (or set to all_glyphs_set if no sets were
+            //    specified). NOTE: Potentially multiple import sets means we can't
+            //    assign a definite one to added glyphs.
+            // 4. Now you have:
+            //     1. added_glyphs_set = import_set - all_glyphs_set
+            //     2. modified_glyphs_set = reference_set & import_set
+            //     3. removed_glyphs_set = reference_set - import_set
+            // 5. Ask the user to proceed if no sets to import were specified and
+            //    removed_glyphs_set would therefore be the rest of the font.
+            // 6. If the user gave a single set to import, assign new glyphs to that
+            //    set. If there are multiple, guess (maybe look at the glyphs in the
+            //    sets and guess based on script tags like `-arab` or `.loclTAML`).
+            // 7. Read partial fontgarden with modified_glyphs_set (we want to overwrite
+            //    layer data but keep layers not modified untouched), add new glyphs.
+            // 8. Write out partial fontgarden by overwriting existing directory
+            //    structure (will store added and modified glyphs), then do extra pass
+            //    to delete removed glyphs (but only for the (parent) layers the import
+            //    sources contain).
+            //
+            // TODO: think harder about glyph removal. Can the formula above remove
+            // glyphs that we don't actually want to remove? What if we import the
+            // upright set and delete some glyph there but we want to keep the italic
+            // layers? Should glyph deletion mean deleting the layers from the import
+            // sources? And the glyph dir is only deleted if it's empty?
             if sources.is_empty() {
                 error_and_exit(
                     clap::error::ErrorKind::WrongNumberOfValues,
