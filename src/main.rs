@@ -26,6 +26,9 @@ enum Commands {
         /// Fontgarden package path to export from.
         fontgarden_path: PathBuf,
 
+        /// Sets to import into.
+        sets: Vec<String>,
+
         /// Sources to import.
         #[arg(required = true)]
         sources: Vec<PathBuf>,
@@ -49,6 +52,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Import {
             fontgarden_path,
+            sets,
             sources,
         } => {
             // To import from a UFO:
@@ -88,11 +92,55 @@ fn main() -> anyhow::Result<()> {
                     "must give at least one source to import",
                 )
             }
+
+            // 1.
+            let sources = ufo::load_sources(&sources)?;
+            let import_set = ufo::gather_glyph_set(&sources);
+
+            // 2.
+            let import_sets: HashSet<&str> = HashSet::from_iter(sets.iter().map(|s| s.as_str()));
             let mut fontgarden = if fontgarden_path.exists() {
                 Fontgarden::load(&fontgarden_path)?
             } else {
                 Fontgarden::new()
             };
+            let reference_set: HashSet<&str> = if import_sets.is_empty() {
+                fontgarden
+                    .glyphs
+                    .values()
+                    .map(|glyph| glyph.set.as_deref().unwrap_or("Common"))
+                    .collect()
+            } else {
+                // 3.
+                let mut g = fontgarden
+                    .glyphs
+                    .iter()
+                    .filter_map(|(name, glyph)| {
+                        if import_sets.contains(glyph.set.as_deref().unwrap_or("Common")) {
+                            Some(name.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Follow components. Load what we have so far and follow component
+                // references.
+                fontgarden.load_glyphs_selectively_and_follow(&g)?;
+                // let mut known_glyphs = g.clone();
+                // let mut new_glyphs = HashSet::new();
+                // loop {
+                //     follow_glyphs(&fontgarden, &mut known_glyphs, &mut new_glyphs);
+                //     if new_glyphs.is_empty() {
+                //         break;
+                //     }
+                //     fontgarden.load_glyphs_selectively(&new_glyphs)?;
+                //     known_glyphs.extend(new_glyphs.drain());
+                // }
+
+                g
+            };
+
             fontgarden.import_ufo_sources(&sources)?;
             fontgarden.save(&fontgarden_path)?;
         }

@@ -239,3 +239,12 @@ fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<Stri
     }
     None
 }
+
+pub(crate) fn gather_glyph_set(sources: &HashMap<String, norad::Font>) -> HashSet<&str> {
+    sources
+        .values()
+        .flat_map(|font| font.iter_layers())
+        .flat_map(|layer| layer.iter())
+        .map(|glyph| glyph.name().as_str())
+        .collect()
+}
