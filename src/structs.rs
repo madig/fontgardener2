@@ -136,12 +136,6 @@ impl Fontgarden {
         for entry in fs::read_dir(&glyph_dir).map_err(|e| LoadError::Io(glyph_dir.clone(), e))? {
             let entry = entry.map_err(|e| LoadError::Io(glyph_dir.clone(), e))?; // Should be entry path?
             let layer_path = entry.path();
-            let metadata = entry
-                .metadata()
-                .map_err(|e| LoadError::Io(layer_path.clone(), e))?;
-            if !metadata.is_file() {
-                continue;
-            }
             // TODO: Return an error if filename conversion to UTF-8 fails?
             let Some(layer_filename_stem) = layer_path.file_stem().and_then(OsStr::to_str) else {
                 continue;
@@ -162,11 +156,13 @@ impl Fontgarden {
     }
 
     pub(crate) fn load_glyphs_selectively_and_follow(
-        &self,
+        &mut self,
         glyph_set: &HashSet<&str>,
+        path: &Path,
     ) -> Result<(), LoadError> {
-        // Load as in load(), but then do extra rounds following references?
-        todo!()
+        Self::load_glyphs(&mut self.glyphs, Some(glyph_set), path)?;
+
+        todo!();
     }
 
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {

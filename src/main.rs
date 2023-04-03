@@ -105,14 +105,10 @@ fn main() -> anyhow::Result<()> {
                 Fontgarden::new()
             };
             let reference_set: HashSet<&str> = if import_sets.is_empty() {
-                fontgarden
-                    .glyphs
-                    .values()
-                    .map(|glyph| glyph.set.as_deref().unwrap_or("Common"))
-                    .collect()
+                fontgarden.glyphs.keys().map(|name| name.as_str()).collect()
             } else {
                 // 3.
-                let mut g = fontgarden
+                let g = fontgarden
                     .glyphs
                     .iter()
                     .filter_map(|(name, glyph)| {
@@ -126,7 +122,8 @@ fn main() -> anyhow::Result<()> {
 
                 // Follow components. Load what we have so far and follow component
                 // references.
-                fontgarden.load_glyphs_selectively_and_follow(&g)?;
+                // XXX: Cannot mut-borrow here because g holds immut ref to glyph names
+                // fontgarden.load_glyphs_selectively_and_follow(&g, &fontgarden_path)?;
                 // let mut known_glyphs = g.clone();
                 // let mut new_glyphs = HashSet::new();
                 // loop {
