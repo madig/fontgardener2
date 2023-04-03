@@ -123,15 +123,15 @@ impl Fontgarden {
             })
             .filter(|(_, _, glyph_dir)| glyph_dir.exists())
             .try_for_each(|(glyph_name, glyph, glyph_dir)| {
-                Self::load_layers(glyph_dir, glyph_name, glyph)
+                Self::load_layers(glyph_name, glyph, glyph_dir)
             })?;
         Ok(())
     }
 
     fn load_layers(
-        glyph_dir: PathBuf,
         glyph_name: &str,
         glyph: &mut Glyph,
+        glyph_dir: PathBuf,
     ) -> Result<(), LoadError> {
         for entry in fs::read_dir(&glyph_dir).map_err(|e| LoadError::Io(glyph_dir.clone(), e))? {
             let entry = entry.map_err(|e| LoadError::Io(glyph_dir.clone(), e))?; // Should be entry path?
