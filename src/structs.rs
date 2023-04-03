@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
     fs::{self, File},
-    path::Path,
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -34,44 +34,7 @@ impl Fontgarden {
 
         let mut glyphs: HashMap<String, Glyph> = HashMap::new();
         Self::load_metadata(path, &mut glyphs)?;
-
-        glyphs
-            .par_iter_mut()
-            .map(|(glyph_name, glyph)| {
-                (
-                    glyph_name.as_str(),
-                    glyph,
-                    path.join("glyphs").join(name_to_filename(glyph_name)),
-                )
-            })
-            .filter(|(_, _, glyph_dir)| glyph_dir.exists())
-            .try_for_each(|(glyph_name, glyph, glyph_dir)| -> Result<(), LoadError> {
-                for entry in fs::read_dir(&glyph_dir).map_err(|e| LoadError::Io(glyph_dir.clone(), e))? {
-                    let entry = entry.map_err(|e| LoadError::Io(glyph_dir.clone(), e))?; // Should be entry path?
-                    let layer_path = entry.path();
-                    let metadata = entry
-                        .metadata()
-                        .map_err(|e| LoadError::Io(layer_path.clone(), e))?;
-                    if !metadata.is_file() {
-                        continue;
-                    }
-                    // TODO: Return an error if filename conversion to UTF-8 fails?
-                    let Some(layer_filename_stem) = layer_path.file_stem().and_then(OsStr::to_str) else {
-                        continue;
-                    };
-                    let Some("json") = layer_path.extension().and_then(OsStr::to_str) else {
-                        continue;
-                    };
-
-                    let layer_file =
-                    File::open(&layer_path).map_err(|e| LoadError::Io(layer_path.clone(), e))?;
-                    let layer: Layer = serde_json::from_reader(layer_file).map_err(|e| {
-                        LoadError::LoadLayerJson(layer_path.clone(), glyph_name.into(), e)
-                    })?;
-                    glyph.layers.insert(filename_to_name(layer_filename_stem), layer);
-                }
-                Ok(())
-            })?;
+        Self::load_glyphs(&mut glyphs, None, path)?;
 
         Ok(Fontgarden { glyphs })
     }
@@ -136,6 +99,65 @@ impl Fontgarden {
             }
         }
 
+        Ok(())
+    }
+
+    fn load_glyphs(
+        glyphs: &mut HashMap<String, Glyph>,
+        glyph_set: Option<&HashSet<&str>>,
+        path: &Path,
+    ) -> Result<(), LoadError> {
+        glyphs
+            .par_iter_mut()
+            .filter(|(glyph_name, _)| {
+                glyph_set
+                    .map(|s| s.contains(glyph_name.as_str()))
+                    .unwrap_or(true)
+            })
+            .map(|(glyph_name, glyph)| {
+                (
+                    glyph_name.as_str(),
+                    glyph,
+                    path.join("glyphs").join(name_to_filename(glyph_name)),
+                )
+            })
+            .filter(|(_, _, glyph_dir)| glyph_dir.exists())
+            .try_for_each(|(glyph_name, glyph, glyph_dir)| {
+                Self::load_layers(glyph_dir, glyph_name, glyph)
+            })?;
+        Ok(())
+    }
+
+    fn load_layers(
+        glyph_dir: PathBuf,
+        glyph_name: &str,
+        glyph: &mut Glyph,
+    ) -> Result<(), LoadError> {
+        for entry in fs::read_dir(&glyph_dir).map_err(|e| LoadError::Io(glyph_dir.clone(), e))? {
+            let entry = entry.map_err(|e| LoadError::Io(glyph_dir.clone(), e))?; // Should be entry path?
+            let layer_path = entry.path();
+            let metadata = entry
+                .metadata()
+                .map_err(|e| LoadError::Io(layer_path.clone(), e))?;
+            if !metadata.is_file() {
+                continue;
+            }
+            // TODO: Return an error if filename conversion to UTF-8 fails?
+            let Some(layer_filename_stem) = layer_path.file_stem().and_then(OsStr::to_str) else {
+                continue;
+            };
+            if layer_path.extension().and_then(OsStr::to_str) != Some("json") {
+                continue;
+            }
+
+            let layer_file =
+                File::open(&layer_path).map_err(|e| LoadError::Io(layer_path.clone(), e))?;
+            let layer: Layer = serde_json::from_reader(layer_file)
+                .map_err(|e| LoadError::LoadLayerJson(layer_path.clone(), glyph_name.into(), e))?;
+            glyph
+                .layers
+                .insert(filename_to_name(layer_filename_stem), layer);
+        }
         Ok(())
     }
 
@@ -213,8 +235,6 @@ impl Fontgarden {
 
         Ok(())
     }
-
-
 }
 
 #[derive(Debug, Serialize, Deserialize)]
