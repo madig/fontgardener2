@@ -39,17 +39,6 @@ impl Fontgarden {
         Ok(Fontgarden { glyphs })
     }
 
-    pub(crate) fn load_shallow(path: &Path) -> Result<Self, LoadError> {
-        if !path.is_dir() {
-            return Err(LoadError::NotAFontgarden);
-        }
-
-        let mut glyphs: HashMap<String, Glyph> = HashMap::new();
-        Self::load_metadata(path, &mut glyphs)?;
-
-        Ok(Fontgarden { glyphs })
-    }
-
     fn load_metadata(path: &Path, glyphs: &mut HashMap<String, Glyph>) -> Result<(), LoadError> {
         for entry in fs::read_dir(path).map_err(|e| LoadError::Io(path.into(), e))? {
             let entry = entry.map_err(|e| LoadError::Io(path.into(), e))?;
@@ -155,14 +144,36 @@ impl Fontgarden {
         Ok(())
     }
 
-    pub(crate) fn load_glyphs_selectively_and_follow(
-        &mut self,
-        glyph_set: &HashSet<&str>,
-        path: &Path,
-    ) -> Result<(), LoadError> {
-        Self::load_glyphs(&mut self.glyphs, Some(glyph_set), path)?;
+    pub(crate) fn follow_composites(&self, glyph_set: &HashSet<&str>) -> HashSet<&str> {
+        let mut discovered_glyphs = HashSet::new();
 
-        todo!();
+        let mut stack = Vec::new();
+        for name in glyph_set.iter() {
+            let Some(component) = self.glyphs.get(*name) else {continue;};
+            stack.extend(
+                component
+                    .layers
+                    .values()
+                    .flat_map(|layer| &layer.components)
+                    .map(|c| c.name.as_str()),
+            );
+            while let Some(component) = stack.pop() {
+                // TODO: are we properly preventing looping or repeat checking?
+                if discovered_glyphs.insert(component) {
+                    let Some(new_component) = self.glyphs.get(component) else {continue;};
+                    stack.extend(
+                        new_component
+                            .layers
+                            .values()
+                            .flat_map(|layer| &layer.components)
+                            .map(|c| c.name.as_str()),
+                    )
+                }
+            }
+            assert!(stack.is_empty());
+        }
+
+        discovered_glyphs
     }
 
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {

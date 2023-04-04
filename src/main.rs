@@ -108,7 +108,7 @@ fn main() -> anyhow::Result<()> {
                 fontgarden.glyphs.keys().map(|name| name.as_str()).collect()
             } else {
                 // 3.
-                let g = fontgarden
+                let mut reference_set: HashSet<&str> = fontgarden
                     .glyphs
                     .iter()
                     .filter_map(|(name, glyph)| {
@@ -120,22 +120,9 @@ fn main() -> anyhow::Result<()> {
                     })
                     .collect();
 
-                // Follow components. Load what we have so far and follow component
-                // references.
-                // XXX: Cannot mut-borrow here because g holds immut ref to glyph names
-                // fontgarden.load_glyphs_selectively_and_follow(&g, &fontgarden_path)?;
-                // let mut known_glyphs = g.clone();
-                // let mut new_glyphs = HashSet::new();
-                // loop {
-                //     follow_glyphs(&fontgarden, &mut known_glyphs, &mut new_glyphs);
-                //     if new_glyphs.is_empty() {
-                //         break;
-                //     }
-                //     fontgarden.load_glyphs_selectively(&new_glyphs)?;
-                //     known_glyphs.extend(new_glyphs.drain());
-                // }
+                reference_set.extend(fontgarden.follow_composites(&reference_set).into_iter());
 
-                g
+                reference_set
             };
 
             fontgarden.import_ufo_sources(&sources)?;
