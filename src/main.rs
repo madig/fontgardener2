@@ -104,8 +104,10 @@ fn main() -> anyhow::Result<()> {
             } else {
                 Fontgarden::new()
             };
+            let all_glyphs_set: HashSet<&str> =
+                fontgarden.glyphs.keys().map(|name| name.as_str()).collect();
             let reference_set: HashSet<&str> = if import_sets.is_empty() {
-                fontgarden.glyphs.keys().map(|name| name.as_str()).collect()
+                all_glyphs_set.clone()
             } else {
                 // 3.
                 let mut reference_set: HashSet<&str> = fontgarden
@@ -124,6 +126,11 @@ fn main() -> anyhow::Result<()> {
 
                 reference_set
             };
+
+            // 4.
+            let added_glyphs_set: HashSet<_> = import_set.difference(&all_glyphs_set).collect();
+            let modified_glyphs_set: HashSet<_> = reference_set.union(&import_set).collect();
+            let removed_glyphs_set: HashSet<_> = reference_set.difference(&import_set).collect();
 
             fontgarden.import_ufo_sources(&sources)?;
             fontgarden.save(&fontgarden_path)?;
