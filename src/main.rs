@@ -102,6 +102,8 @@ fn main() -> anyhow::Result<()> {
             let sources = ufo::load_sources(&sources)?;
             let import_set = ufo::gather_glyph_set(&sources);
 
+            dbg!(&sources.keys());
+
             // 2.
             let import_sets: HashSet<String> =
                 HashSet::from_iter(sets.iter().map(|s| s.to_string()));

@@ -182,7 +182,11 @@ impl Fontgarden {
             .filter(|(name, _)| glyphs.contains(name.as_str()))
             .for_each(|(_, glyph)| {
                 glyph.layers.retain(|layer_name, _| {
-                    !source_names.contains(layer_name.split_once('.').unwrap().0)
+                    if let Some((base_name, _)) = layer_name.split_once('.') {
+                        !source_names.contains(base_name)
+                    } else {
+                        !source_names.contains(layer_name)
+                    }
                 })
             })
     }
