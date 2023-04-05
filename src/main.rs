@@ -27,6 +27,7 @@ enum Commands {
         fontgarden_path: PathBuf,
 
         /// Sets to import into.
+        #[arg(short = 's', long = "sets", value_name = "SET")]
         sets: Vec<String>,
 
         /// Sources to import.
@@ -92,6 +93,10 @@ fn main() -> anyhow::Result<()> {
                     "must give at least one source to import",
                 )
             }
+
+            dbg!(&fontgarden_path);
+            dbg!(&sets);
+            dbg!(&sources);
 
             // 1.
             let sources = ufo::load_sources(&sources)?;
