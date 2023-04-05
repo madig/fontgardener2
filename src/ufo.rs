@@ -15,6 +15,7 @@ impl Fontgarden {
     pub fn import_ufo_sources(
         &mut self,
         sources: &HashMap<String, norad::Font>,
+        definitive_set: Option<String>,
     ) -> Result<(), SourceLoadError> {
         let default_source = match sources.get("Regular") {
             Some(font) => font,
@@ -50,7 +51,11 @@ impl Fontgarden {
                     {
                         fontgarden_glyph.codepoints = glyph.codepoints.clone();
                         if fontgarden_glyph.set.is_none() {
-                            fontgarden_glyph.set = categorize_glyph(glyph, &glyph_info);
+                            if definitive_set.is_some() {
+                                fontgarden_glyph.set = definitive_set.clone();
+                            } else {
+                                fontgarden_glyph.set = categorize_glyph(glyph, &glyph_info);
+                            }
                         }
                     }
                     let fontgarden_layer: Layer = glyph.into();
@@ -240,11 +245,11 @@ fn categorize_glyph(glyph: &norad::Glyph, glyph_info: &GlyphData) -> Option<Stri
     None
 }
 
-pub(crate) fn gather_glyph_set(sources: &HashMap<String, norad::Font>) -> HashSet<&str> {
+pub(crate) fn gather_glyph_set(sources: &HashMap<String, norad::Font>) -> HashSet<String> {
     sources
         .values()
         .flat_map(|font| font.iter_layers())
         .flat_map(|layer| layer.iter())
-        .map(|glyph| glyph.name().as_str())
+        .map(|glyph| glyph.name().to_string())
         .collect()
 }

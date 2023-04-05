@@ -144,29 +144,29 @@ impl Fontgarden {
         Ok(())
     }
 
-    pub(crate) fn follow_composites(&self, glyph_set: &HashSet<&str>) -> HashSet<&str> {
+    pub(crate) fn follow_composites(&self, glyph_set: &HashSet<String>) -> HashSet<String> {
         let mut discovered_glyphs = HashSet::new();
 
         let mut stack = Vec::new();
         for name in glyph_set.iter() {
-            let Some(component) = self.glyphs.get(*name) else {continue;};
+            let Some(component) = self.glyphs.get(name.as_str()) else {continue;};
             stack.extend(
                 component
                     .layers
                     .values()
                     .flat_map(|layer| &layer.components)
-                    .map(|c| c.name.as_str()),
+                    .map(|c| c.name.to_string()),
             );
             while let Some(component) = stack.pop() {
                 // TODO: are we properly preventing looping or repeat checking?
-                if discovered_glyphs.insert(component) {
-                    let Some(new_component) = self.glyphs.get(component) else {continue;};
+                if discovered_glyphs.insert(component.clone()) {
+                    let Some(new_component) = self.glyphs.get(&component) else {continue;};
                     stack.extend(
                         new_component
                             .layers
                             .values()
                             .flat_map(|layer| &layer.components)
-                            .map(|c| c.name.as_str()),
+                            .map(|c| c.name.to_string()),
                     )
                 }
             }
@@ -174,6 +174,17 @@ impl Fontgarden {
         }
 
         discovered_glyphs
+    }
+
+    pub fn remove_glyphs(&mut self, glyphs: &HashSet<String>, source_names: &HashSet<String>) {
+        self.glyphs
+            .iter_mut()
+            .filter(|(name, _)| glyphs.contains(name.as_str()))
+            .for_each(|(_, glyph)| {
+                glyph.layers.retain(|layer_name, _| {
+                    !source_names.contains(layer_name.split_once('.').unwrap().0)
+                })
+            })
     }
 
     pub fn save(&self, path: &Path) -> Result<(), SaveError> {

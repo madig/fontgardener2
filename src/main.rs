@@ -98,24 +98,28 @@ fn main() -> anyhow::Result<()> {
             let import_set = ufo::gather_glyph_set(&sources);
 
             // 2.
-            let import_sets: HashSet<&str> = HashSet::from_iter(sets.iter().map(|s| s.as_str()));
+            let import_sets: HashSet<String> =
+                HashSet::from_iter(sets.iter().map(|s| s.to_string()));
             let mut fontgarden = if fontgarden_path.exists() {
                 Fontgarden::load(&fontgarden_path)?
             } else {
                 Fontgarden::new()
             };
-            let all_glyphs_set: HashSet<&str> =
-                fontgarden.glyphs.keys().map(|name| name.as_str()).collect();
-            let reference_set: HashSet<&str> = if import_sets.is_empty() {
+            let all_glyphs_set: HashSet<String> = fontgarden
+                .glyphs
+                .keys()
+                .map(|name| name.to_string())
+                .collect();
+            let reference_set: HashSet<String> = if import_sets.is_empty() {
                 all_glyphs_set.clone()
             } else {
                 // 3.
-                let mut reference_set: HashSet<&str> = fontgarden
+                let mut reference_set: HashSet<String> = fontgarden
                     .glyphs
                     .iter()
                     .filter_map(|(name, glyph)| {
                         if import_sets.contains(glyph.set.as_deref().unwrap_or("Common")) {
-                            Some(name.as_str())
+                            Some(name.to_string())
                         } else {
                             None
                         }
@@ -128,11 +132,33 @@ fn main() -> anyhow::Result<()> {
             };
 
             // 4.
-            let added_glyphs_set: HashSet<_> = import_set.difference(&all_glyphs_set).collect();
-            let modified_glyphs_set: HashSet<_> = reference_set.union(&import_set).collect();
-            let removed_glyphs_set: HashSet<_> = reference_set.difference(&import_set).collect();
+            let added_glyphs_set: HashSet<String> =
+                import_set.difference(&all_glyphs_set).cloned().collect();
+            let modified_glyphs_set: HashSet<String> =
+                reference_set.intersection(&import_set).cloned().collect();
+            let removed_glyphs_set: HashSet<String> =
+                reference_set.difference(&import_set).cloned().collect();
 
-            fontgarden.import_ufo_sources(&sources)?;
+            // 5.
+            // TODO
+
+            // 6.
+            let definitive_set = if sets.len() == 1 {
+                Some(sets.iter().next().unwrap().to_string())
+            } else {
+                None
+            };
+
+            fontgarden.import_ufo_sources(&sources, definitive_set)?;
+
+            // 7.
+            fontgarden.remove_glyphs(&removed_glyphs_set, &sources.keys().cloned().collect());
+
+            println!("Added glyphs: {added_glyphs_set:?}");
+            println!("Modified glyphs: {modified_glyphs_set:?}");
+            println!("Removed glyphs: {removed_glyphs_set:?}");
+
+            // 8.
             fontgarden.save(&fontgarden_path)?;
         }
         Commands::Export {
@@ -232,7 +258,7 @@ mod tests {
         ])
         .unwrap();
         let mut fontgarden = Fontgarden::new();
-        fontgarden.import_ufo_sources(&sources).unwrap();
+        fontgarden.import_ufo_sources(&sources, None).unwrap();
 
         let fontgarden_path = tempfile::tempdir().unwrap();
         fontgarden.save(fontgarden_path.path()).unwrap();
@@ -251,7 +277,7 @@ mod tests {
         ])
         .unwrap();
         let mut fontgarden = Fontgarden::new();
-        fontgarden.import_ufo_sources(&sources).unwrap();
+        fontgarden.import_ufo_sources(&sources, None).unwrap();
 
         let export_dir = tempfile::tempdir().unwrap();
 
@@ -266,7 +292,7 @@ mod tests {
         .unwrap();
         let mut roundtripped_fontgarden = Fontgarden::new();
         roundtripped_fontgarden
-            .import_ufo_sources(&roundtripped_sources)
+            .import_ufo_sources(&roundtripped_sources, None)
             .unwrap();
 
         assert_eq!(fontgarden, roundtripped_fontgarden);
