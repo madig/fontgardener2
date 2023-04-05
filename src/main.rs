@@ -143,6 +143,7 @@ fn main() -> anyhow::Result<()> {
                 import_set.difference(&all_glyphs_set).cloned().collect();
             let modified_glyphs_set: HashSet<String> =
                 reference_set.intersection(&import_set).cloned().collect();
+            // TODO removes most glyphs on each import when no set is given 😬 import one script and then the next to see
             let removed_glyphs_set: HashSet<String> =
                 reference_set.difference(&import_set).cloned().collect();
 
@@ -163,7 +164,7 @@ fn main() -> anyhow::Result<()> {
 
             println!("Added glyphs: {added_glyphs_set:?}");
             println!("Modified glyphs: {modified_glyphs_set:?}");
-            println!("Removed glyphs: {removed_glyphs_set:?}");
+            println!("Removed glyphs ({:?}): {removed_glyphs_set:?}", &sources.keys());
 
             // 8.
             fontgarden.save(&fontgarden_path)?;
