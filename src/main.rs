@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
 
             // 6.
             let definitive_set = if sets.len() == 1 {
-                Some(sets.iter().next().unwrap().to_string())
+                Some(sets.first().unwrap().to_string())
             } else {
                 None
             };
